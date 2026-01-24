@@ -1,8 +1,19 @@
 import express from "express";
 import crypto from "crypto";
 import dotenv from "dotenv";
+import { Octokit } from "@octokit/rest";
+import { createAppAuth } from "@octokit/auth-app";
 
 dotenv.config();
+
+const octokit = new Octokit({
+  authStrategy: createAppAuth,
+  auth: {
+    appId: process.env.APP_ID,
+    privateKey: process.env.PRIVATE_KEY.replace(/\\n/g, "\n"),
+    installationId: process.env.INSTALLATION_ID
+  }
+});
 
 const app = express();
 
