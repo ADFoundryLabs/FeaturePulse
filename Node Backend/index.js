@@ -8,7 +8,7 @@ dotenv.config();
 
 const app = express();
 
-// IMPORTANT: raw body needed for webhook verification
+
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
