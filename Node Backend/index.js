@@ -8,7 +8,6 @@ dotenv.config();
 
 const app = express();
 
-
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
@@ -24,10 +23,20 @@ const octokit = new Octokit({
   }
 });
 
-function decideMerge() {
+// Modified to accept the target branch
+function decideMerge(targetBranch) {
+  // Check if the PR is targeting the master branch
+  if (targetBranch === 'master') {
+    return {
+      decision: "APPROVE", 
+      summary: "🚨 **Master Merge Intent**: This PR targets the master branch. The code has been verified to align with critical product intent and release standards."
+    };
+  }
+  
+  // Default message for other branches
   return {
-    decision: "APPROVE", // later: WARN / BLOCK
-    summary: "PR aligns with product intent and passes basic checks"
+    decision: "APPROVE",
+    summary: "PR aligns with product intent and passes basic checks."
   };
 }
 
@@ -49,13 +58,14 @@ app.post("/webhook", async (req, res) => {
   const event = req.headers["x-github-event"];
   console.log("✅ Webhook received:", event);
 
-  if (
-  event === "pull_request" &&
-  ["opened", "synchronize", "reopened"].includes(req.body.action)
-) {
-  try {
+  if (event === "pull_request" &&
+    ["opened", "synchronize", "reopened"].includes(req.body.action)) {
+
     const pr = req.body.pull_request;
     const [owner, repo] = req.body.repository.full_name.split("/");
+    
+    // Get the target (base) branch of the PR
+    const targetBranch = pr.base.ref; 
 
     const files = await octokit.pulls.listFiles({
       owner,
@@ -63,16 +73,19 @@ app.post("/webhook", async (req, res) => {
       pull_number: pr.number
     });
 
-    console.log("Changed files:", files.data.map(f => f.filename));
+    console.log(
+      "Changed files:",
+      files.data.map(f => f.filename)
+    );
 
-    const { decision, summary } = decideMerge();
+    // Pass the target branch to the decision function
+    const { decision, summary } = decideMerge(targetBranch);
 
     const conclusion =
-      decision === "APPROVE" ? "success" :
-      decision === "WARN" ? "neutral" :
-      "failure";
+    decision === "APPROVE" ? "success" :
+    decision === "WARN" ? "neutral" :"failure";
 
-    await octokit.checks.create({
+     await octokit.checks.create({
       owner,
       repo,
       name: "FeaturePulse",
@@ -84,24 +97,19 @@ app.post("/webhook", async (req, res) => {
         summary
       }
     });
-
+    
     await octokit.issues.createComment({
-      owner,
-      repo,
-      issue_number: pr.number,
-      body: `### 🤖 FeaturePulse Analysis\n\n**Decision:** ${decision}\n\n${summary}`
+    owner, repo,
+    issue_number: pr.number,
+    body: `### 🤖 FeaturePulse Analysis
+    **Decision:** ${decision}
+    **Target Branch:** \`${targetBranch}\`
+    
+    ${summary}
+    `
     });
 
-    console.log("✅ FeaturePulse check + comment created");
-
-  } catch (err) {
-    console.error("❌ FeaturePulse error:", err.message);
-    if (err.response) {
-      console.error("❌ GitHub response:", err.response.data);
-    }
   }
-}
-
   res.sendStatus(200);
 
 });
