@@ -49,9 +49,11 @@ app.post("/webhook", async (req, res) => {
   const event = req.headers["x-github-event"];
   console.log("✅ Webhook received:", event);
 
-  if (event === "pull_request" &&
-    ["opened", "synchronize", "reopened"].includes(req.body.action)) {
-
+  if (
+  event === "pull_request" &&
+  ["opened", "synchronize", "reopened"].includes(req.body.action)
+) {
+  try {
     const pr = req.body.pull_request;
     const [owner, repo] = req.body.repository.full_name.split("/");
 
@@ -61,18 +63,16 @@ app.post("/webhook", async (req, res) => {
       pull_number: pr.number
     });
 
-    console.log(
-      "Changed files:",
-      files.data.map(f => f.filename)
-    );
+    console.log("Changed files:", files.data.map(f => f.filename));
 
     const { decision, summary } = decideMerge();
 
     const conclusion =
-    decision === "APPROVE" ? "success" :
-    decision === "WARN" ? "neutral" :"failure";
+      decision === "APPROVE" ? "success" :
+      decision === "WARN" ? "neutral" :
+      "failure";
 
-     await octokit.checks.create({
+    await octokit.checks.create({
       owner,
       repo,
       name: "FeaturePulse",
@@ -84,16 +84,24 @@ app.post("/webhook", async (req, res) => {
         summary
       }
     });
+
     await octokit.issues.createComment({
-    owner, repo,
-    issue_number: pr.number,
-    body: `### 🤖 FeaturePulse Analysis
-    **Decision:** ${decision}
-    ${summary}
-    `
+      owner,
+      repo,
+      issue_number: pr.number,
+      body: `### 🤖 FeaturePulse Analysis\n\n**Decision:** ${decision}\n\n${summary}`
     });
 
+    console.log("✅ FeaturePulse check + comment created");
+
+  } catch (err) {
+    console.error("❌ FeaturePulse error:", err.message);
+    if (err.response) {
+      console.error("❌ GitHub response:", err.response.data);
+    }
   }
+}
+
   res.sendStatus(200);
 
 });
