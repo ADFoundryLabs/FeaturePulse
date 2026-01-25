@@ -4,7 +4,7 @@ import './Pricing.css';
 const FEATURE_PRICES = { intent: 499, security: 499, summary: 299 };
 
 // REPLACE THIS with your specific GitHub App Link
-const GITHUB_APP_URL = "https://github.com/apps/featurepulse-demo/installations/new";
+const GITHUB_APP_URL = "https://github.com/apps/featurepulse-merge";
 
 export default function Pricing({ installationId }) {
   const [selectedFeatures, setSelectedFeatures] = useState({
