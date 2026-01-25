@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
-import './Pricing.css';
+import './Pricing.css'; // Ensure you have the CSS file too!
 
 const FEATURE_PRICES = { intent: 499, security: 499, summary: 299 };
-
-// REPLACE THIS with your specific GitHub App Link
-const GITHUB_APP_URL = "https://github.com/apps/featurepulse-merge";
+const GITHUB_APP_URL = "https://github.com/apps/featurepulse-demo/installations/new"; // Update this with YOUR App Link
 
 export default function Pricing({ installationId }) {
   const [selectedFeatures, setSelectedFeatures] = useState({
@@ -14,8 +12,8 @@ export default function Pricing({ installationId }) {
 
   useEffect(() => {
     if (installationId) {
-      // Fetch current subscription from our backend
-      fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api/subscription/${installationId}`)
+      // Check subscription status from backend
+      fetch(`${import.meta.env.VITE_API_BASE_URL}/api/subscription/${installationId}`)
         .then(res => res.json())
         .then(data => setActiveSubscription(data.features || []))
         .catch(err => console.error("Failed to fetch sub", err));
@@ -23,7 +21,7 @@ export default function Pricing({ installationId }) {
   }, [installationId]);
 
   const toggleFeature = (feature) => {
-    if (activeSubscription.includes(feature)) return; // Already bought
+    if (activeSubscription.includes(feature)) return;
     setSelectedFeatures(prev => ({ ...prev, [feature]: !prev[feature] }));
   };
 
@@ -32,7 +30,6 @@ export default function Pricing({ installationId }) {
     Object.keys(selectedFeatures).forEach(f => {
       if (selectedFeatures[f]) total += FEATURE_PRICES[f];
     });
-    // 20% discount if buying all 3 NEW features
     if (selectedFeatures.intent && selectedFeatures.security && selectedFeatures.summary) {
       total = Math.floor(total * 0.8);
     }
@@ -41,9 +38,8 @@ export default function Pricing({ installationId }) {
 
   const handlePayment = async () => {
     const featuresToBuy = Object.keys(selectedFeatures).filter(k => selectedFeatures[k]);
-    
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api/create-order`, {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/create-order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ features: featuresToBuy, installationId })
@@ -57,14 +53,10 @@ export default function Pricing({ installationId }) {
         name: "FeaturePulse",
         order_id: order.id,
         handler: async function (response) {
-          const verifyRes = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api/verify-payment`, {
+          const verifyRes = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/verify-payment`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ...response,
-              features: featuresToBuy,
-              installationId
-            })
+            body: JSON.stringify({ ...response, features: featuresToBuy, installationId })
           });
           const data = await verifyRes.json();
           if (data.status === 'success') {
@@ -83,48 +75,29 @@ export default function Pricing({ installationId }) {
     return (
       <div className="pricing-container">
         <h2>Connect GitHub First</h2>
-        <p>Please install FeaturePulse on your repository to configure billing.</p>
-        <a href={GITHUB_APP_URL} className="install-btn">
-          Install FeaturePulse on GitHub
-        </a>
+        <a href={GITHUB_APP_URL} className="install-btn">Install FeaturePulse on GitHub</a>
       </div>
     );
   }
 
-  const total = calculateTotal();
-
   return (
     <div className="pricing-container">
-      <div className="header-status">
-        <h2>Configure Plan</h2>
-        <span className="badge">Installation ID: {installationId}</span>
-      </div>
-
+      <h2>Configure Plan (ID: {installationId})</h2>
       <div className="features-grid">
-        {['intent', 'security', 'summary'].map(f => {
-          const isPurchased = activeSubscription.includes(f);
-          const isSelected = selectedFeatures[f];
-          
-          return (
-            <div 
-              key={f}
-              className={`feature-card ${isSelected || isPurchased ? 'selected' : ''} ${isPurchased ? 'purchased' : ''}`}
-              onClick={() => toggleFeature(f)}
-            >
-              <h3>{f.toUpperCase()}</h3>
-              <p>{f === 'intent' ? 'AI Product Alignment' : f === 'security' ? 'Vuln Scanning' : 'PR Summaries'}</p>
-              <span className="price">{isPurchased ? 'ACTIVE' : `₹${FEATURE_PRICES[f]}/mo`}</span>
-            </div>
-          );
-        })}
+        {['intent', 'security', 'summary'].map(f => (
+          <div 
+            key={f} 
+            className={`feature-card ${selectedFeatures[f] ? 'selected' : ''} ${activeSubscription.includes(f) ? 'purchased' : ''}`}
+            onClick={() => toggleFeature(f)}
+          >
+            <h3>{f.toUpperCase()}</h3>
+            <span className="price">{activeSubscription.includes(f) ? 'ACTIVE' : `₹${FEATURE_PRICES[f]}`}</span>
+          </div>
+        ))}
       </div>
-
-      <div className="checkout-bar">
-        <span>Total: ₹{total}</span>
-        <button className="pay-btn" onClick={handlePayment} disabled={total === 0}>
-          {total === 0 ? "Select Features" : "Pay & Upgrade"}
-        </button>
-      </div>
+      <button className="pay-btn" onClick={handlePayment} disabled={calculateTotal() === 0}>
+        Pay ₹{calculateTotal()}
+      </button>
     </div>
   );
 }
