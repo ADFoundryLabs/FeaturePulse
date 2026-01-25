@@ -1,18 +1,10 @@
-import { Octokit } from "@octokit/rest";
-import { createAppAuth } from "@octokit/auth-app";
+
 import dotenv from "dotenv";
 
 dotenv.config();
 
 // Initialize a dedicated Octokit client for this module
-const octokit = new Octokit({
-  authStrategy: createAppAuth,
-  auth: {
-    appId: process.env.APP_ID,
-    privateKey: process.env.PRIVATE_KEY,
-    installationId: process.env.INSTALLATION_ID
-  }
-});
+
 
 /**
  * Fetch intent.md rules from the repository.
