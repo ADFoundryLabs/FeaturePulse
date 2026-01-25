@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
-import dotenv from "dotenv"; // Fixed typo here
+import dotenv from "dotenv"; 
 
 dotenv.config();
 
@@ -32,11 +32,11 @@ if (useGemini) {
 }
 
 /**
- * Orchestrate AI analysis with Security Context
+ * Orchestrate AI analysis with Security and Redundancy Context
  */
-export async function analyzeWithAI(intentRules, prDetails, fileChanges, securityResult) {
+export async function analyzeWithAI(intentRules, prDetails, fileChanges, securityResult, redundancyResult) {
   
-  // Format security findings for the prompt
+  // Format security findings
   const securityContext = `
   [SECURITY SCAN RESULTS]
   Risk Level: ${securityResult.riskLevel}
@@ -44,19 +44,26 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
   Vulnerabilities Found: ${JSON.stringify(securityResult.vulnerabilities)}
   `;
 
+  // Format redundancy findings
+  const redundancyContext = `
+  [REDUNDANCY CHECKS]
+  ${redundancyResult && redundancyResult.length > 0 ? redundancyResult.join("\n- ") : "No obvious redundancy detected."}
+  `;
+
   const prompt = `
   You are a Senior Project Manager Bot named FeaturePulse.
   
   CORE INSTRUCTIONS:
-  1. Read the [PROJECT INTENT RULES] and [SECURITY SCAN RESULTS].
+  1. Read the [PROJECT INTENT RULES], [SECURITY SCAN RESULTS], and [REDUNDANCY CHECKS].
   2. Analyze the [FILE CHANGES] to see if they align with intent.
-  3. Combine Intent Alignment + Security Risk to form a FINAL DECISION based on this Logic Matrix:
+  3. Combine factors to form a FINAL DECISION based on this Logic Matrix:
   
   [DECISION LOGIC MATRIX]
   - IF Security Risk = "HIGH" or "CRITICAL" -> Decision MUST be "BLOCK" (Reason: Security Risk)
   - IF Intent Match < 50% -> Decision MUST be "BLOCK" (Reason: Misalignment)
+  - IF [REDUNDANCY CHECKS] detected issues -> Decision should be "WARN" (unless Security/Intent dictates BLOCK)
   - IF Security Risk = "MEDIUM" -> Decision is "WARN"
-  - IF Intent Match >= 80% AND Security = "LOW" -> Decision is "APPROVE"
+  - IF Intent Match >= 80% AND Security = "LOW" AND No Redundancy -> Decision is "APPROVE"
   - ELSE -> Decision is "WARN"
 
   ---
@@ -64,6 +71,8 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
   ${intentRules}
   
   ${securityContext}
+
+  ${redundancyContext}
   ---
 
   [PR CONTEXT]
@@ -77,10 +86,11 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
   {
     "completion_score": "Percentage (0-100%)",
     "security_risk": "${securityResult.riskLevel}",
+    "redundancy_detected": ${redundancyResult && redundancyResult.length > 0},
     "completed_features": ["List of intent items FULLY implemented"],
     "pending_features": ["List of intent items MISSING"],
     "decision": "APPROVE" | "WARN" | "BLOCK",
-    "summary": "A human-readable explanation of the decision. Mention specific security risks if any."
+    "summary": "A human-readable explanation of the decision. Mention specific security risks or redundancy if found."
   }
   `;
 
