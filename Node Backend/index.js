@@ -6,9 +6,10 @@ import Razorpay from "razorpay";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 
-import { fetchIntentRules, fetchPRChanges } from "./github.js";
+import { fetchIntentRules, fetchPRChanges, fetchRepoStructure } from "./github.js";
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
+import { analyzeRedundancy } from "./redundancy.js";
 import { getSubscription, updateSubscription } from "./db.js"; 
 
 dotenv.config();
@@ -121,16 +122,37 @@ app.post("/webhook", async (req, res) => {
 
       // PROCEED WITH ANALYSIS
       const octokit = getInstallationOctokit(installationId);
-      const intentRules = await fetchIntentRules(owner, repo);
-      const prChanges = await fetchPRChanges(owner, repo, pr.number);
+      
+      // Fetch Intent (Pass octokit instance)
+      const intentRules = await fetchIntentRules(octokit, owner, repo);
+      // Fetch PR Changes (Pass octokit instance)
+      const prChanges = await fetchPRChanges(octokit, owner, repo, pr.number);
 
+      // --- REDUNDANCY DETECTION ---
+      let redundancyResult = [];
+      try {
+        // Fetch repo structure to compare files against
+        const existingFiles = await fetchRepoStructure(octokit, owner, repo, pr.base.ref);
+        redundancyResult = analyzeRedundancy(prChanges, existingFiles);
+      } catch (err) {
+        console.error("Redundancy check failed:", err);
+      }
+      
+      // --- SECURITY ANALYSIS ---
       let securityResult = { riskLevel: "UNKNOWN", sensitiveFiles: [], vulnerabilities: [] };
       if (activeFeatures.includes('security')) {
         securityResult = await analyzeSecurity(prChanges);
       }
 
+      // --- AI ANALYSIS ---
       const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
-      const aiResult = await analyzeWithAI(intentRules, aiInput, prChanges, securityResult);
+      const aiResult = await analyzeWithAI(
+          intentRules, 
+          aiInput, 
+          prChanges, 
+          securityResult, 
+          redundancyResult // Pass redundancy findings
+      );
 
       let conclusion = aiResult.decision === "BLOCK" ? "failure" : "success";
 
