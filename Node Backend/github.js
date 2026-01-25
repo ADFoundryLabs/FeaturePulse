@@ -1,9 +1,12 @@
-
 import dotenv from "dotenv";
 
 dotenv.config();
 
-export async function fetchIntentRules(owner, repo) {
+/**
+ * Fetches the raw text content of the intent rules (intent.md).
+ * Prioritizes .featurepulse/intent.md, then falls back to recursive search.
+ */
+export async function fetchIntentRules(octokit, owner, repo) {
   // Helper to fetch content of a specific path
   const fetchContent = async (path) => {
     try {
@@ -33,7 +36,7 @@ export async function fetchIntentRules(owner, repo) {
 
     // 2. Fallback: Search the entire codebase
     console.log("   Not found in .featurepulse/. Searching entire repository...");
-    const foundPath = await searchRepoForFile(owner, repo, "intent.md");
+    const foundPath = await searchRepoForFile(octokit, owner, repo, "intent.md");
 
     if (foundPath) {
       console.log(`✅ Found intent via search at: ${foundPath}`);
@@ -59,7 +62,7 @@ Default Intent Rules (Fallback):
  * Recursively searches the repository tree for a specific filename.
  * Uses the Git Tree API for efficiency.
  */
-async function searchRepoForFile(owner, repo, filename) {
+async function searchRepoForFile(octokit, owner, repo, filename) {
   try {
     // 1. Get the default branch (usually master/main)
     const { data: repoData } = await octokit.repos.get({ owner, repo });
@@ -103,7 +106,7 @@ async function searchRepoForFile(owner, repo, filename) {
 /**
  * Fetch file changes and patches for a pull request
  */
-export async function fetchPRChanges(owner, repo, pullNumber) {
+export async function fetchPRChanges(octokit, owner, repo, pullNumber) {
   try {
     const files = await octokit.pulls.listFiles({
       owner,
@@ -125,5 +128,37 @@ ${file.patch || "No diff available (Large or Binary file)"}
   } catch (error) {
     console.error("❌ Error fetching PR changes:", error.message);
     return "Error fetching file changes.";
+  }
+}
+
+/**
+ * Fetches a flat list of all file paths in the repository.
+ * Used for redundancy detection.
+ */
+export async function fetchRepoStructure(octokit, owner, repo, branch = "main") {
+  try {
+    // 1. Get the branch SHA to ensure we get the latest tree
+    const { data: branchData } = await octokit.repos.getBranch({
+      owner,
+      repo,
+      branch,
+    });
+    const treeSha = branchData.commit.sha;
+
+    // 2. Fetch the recursive tree
+    const { data: treeData } = await octokit.git.getTree({
+      owner,
+      repo,
+      tree_sha: treeSha,
+      recursive: "1",
+    });
+
+    // 3. Return only file paths (filter out directories)
+    return treeData.tree
+      .filter((item) => item.type === "blob")
+      .map((item) => item.path);
+  } catch (error) {
+    console.warn("⚠️ Could not fetch repo structure:", error.message);
+    return [];
   }
 }
