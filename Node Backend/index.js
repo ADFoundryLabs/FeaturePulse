@@ -23,30 +23,27 @@ const octokit = new Octokit({
   }
 });
 
-// Modified to accept the target branch
-function decideMerge(targetBranch) {
-  // Check if the PR is targeting the master branch
-  if (targetBranch === 'master') {
-    return {
-      decision: "APPROVE", 
-      summary: "🚨 **Master Merge Intent**: This PR targets the master branch. The code has been verified to align with critical product intent and release standards."
-    };
+/**
+ * Decision based on AI confidence score
+ */
+function decideFromConfidence(score) {
+  if (score < 50) {
+    return { decision: "BLOCK", conclusion: "failure" };
   }
-  
-  // Default message for other branches
-  return {
-    decision: "APPROVE",
-    summary: "PR aligns with product intent and passes basic checks."
-  };
+  if (score < 80) {
+    return { decision: "WARN", conclusion: "neutral" };
+  }
+  return { decision: "APPROVE", conclusion: "success" };
 }
 
 app.post("/webhook", async (req, res) => {
-    console.log(
-  "📩 Webhook received:",
-  req.headers["x-github-event"],
-  req.body.action
-);
+  console.log(
+    "📩 Webhook received:",
+    req.headers["x-github-event"],
+    req.body.action
+  );
 
+  // Verify webhook signature
   const signature = req.headers["x-hub-signature-256"];
   const hmac = crypto.createHmac("sha256", process.env.WEBHOOK_SECRET);
   const digest = "sha256=" + hmac.update(req.rawBody).digest("hex");
@@ -56,62 +53,62 @@ app.post("/webhook", async (req, res) => {
   }
 
   const event = req.headers["x-github-event"];
-  console.log("✅ Webhook received:", event);
 
-  if (event === "pull_request" &&
-    ["opened", "synchronize", "reopened"].includes(req.body.action)) {
+  if (
+    event === "pull_request" &&
+    ["opened", "synchronize", "reopened"].includes(req.body.action)
+  ) {
+    try {
+      const pr = req.body.pull_request;
+      const [owner, repo] = req.body.repository.full_name.split("/");
+      const targetBranch = pr.base.ref;
 
-    const pr = req.body.pull_request;
-    const [owner, repo] = req.body.repository.full_name.split("/");
-    
-    // Get the target (base) branch of the PR
-    const targetBranch = pr.base.ref; 
+      // 🔜 TEMP MOCK (will come from ai.js)
+      const aiResult = {
+        intent: "Documentation Update",
+        confidence: 82,
+        reason: "PR modifies markdown files and aligns with intent.md rules."
+      };
 
-    const files = await octokit.pulls.listFiles({
-      owner,
-      repo,
-      pull_number: pr.number
-    });
+      const { decision, conclusion } = decideFromConfidence(aiResult.confidence);
 
-    console.log(
-      "Changed files:",
-      files.data.map(f => f.filename)
-    );
+      // Create GitHub Check
+      await octokit.checks.create({
+        owner,
+        repo,
+        name: "FeaturePulse",
+        head_sha: pr.head.sha,
+        status: "completed",
+        conclusion,
+        output: {
+          title: `FeaturePulse Decision: ${decision}`,
+          summary: `Intent: ${aiResult.intent}\nConfidence: ${aiResult.confidence}%\n\n${aiResult.reason}`
+        }
+      });
 
-    // Pass the target branch to the decision function
-    const { decision, summary } = decideMerge(targetBranch);
+      // Create PR Comment
+      await octokit.issues.createComment({
+        owner,
+        repo,
+        issue_number: pr.number,
+        body: `### 🤖 FeaturePulse AI Intent Analysis
 
-    const conclusion =
-    decision === "APPROVE" ? "success" :
-    decision === "WARN" ? "neutral" :"failure";
+**Detected Intent:** ${aiResult.intent}  
+**Confidence Score:** ${aiResult.confidence}%  
+**Decision:** ${decision}  
+**Target Branch:** \`${targetBranch}\`
 
-     await octokit.checks.create({
-      owner,
-      repo,
-      name: "FeaturePulse",
-      head_sha: pr.head.sha,
-      status: "completed",
-      conclusion,
-      output: {
-        title: `FeaturePulse Decision: ${decision}`,
-        summary
-      }
-    });
-    
-    await octokit.issues.createComment({
-    owner, repo,
-    issue_number: pr.number,
-    body: `### 🤖 FeaturePulse Analysis
-    **Decision:** ${decision}
-    **Target Branch:** \`${targetBranch}\`
-    
-    ${summary}
-    `
-    });
+${aiResult.reason}
+`
+      });
 
+      console.log("✅ FeaturePulse intent analysis posted");
+    } catch (err) {
+      console.error("❌ FeaturePulse error:", err.message);
+    }
   }
-  res.sendStatus(200);
 
+  res.sendStatus(200);
 });
 
 app.listen(3000, () => {
