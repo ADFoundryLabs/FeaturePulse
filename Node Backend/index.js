@@ -1,12 +1,12 @@
 import express from "express";
 import crypto from "crypto";
-importHv dotenv from "dotenv";
+import dotenv from "dotenv"; // Fixed typo here
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 
 import { fetchIntentRules, fetchPRChanges } from "./github.js";
 import { analyzeWithAI } from "./ai.js";
-import { analyzeSecurity } from "./security.js"; // Import Security Module
+import { analyzeSecurity } from "./security.js";
 
 dotenv.config();
 
@@ -65,11 +65,10 @@ app.post("/webhook", async (req, res) => {
       const octokit = getInstallationOctokit(installationId);
 
       // 1️⃣ Read intent.md
-      const intentRules = await fetchIntentRules(octokit, owner, repo);
+      const intentRules = await fetchIntentRules(owner, repo);
 
       // 2️⃣ Read PR file changes
       const prChanges = await fetchPRChanges(
-        octokit,
         owner,
         repo,
         pr.number
@@ -81,7 +80,7 @@ app.post("/webhook", async (req, res) => {
       console.log("   Security Risk:", securityResult.riskLevel);
 
       // 4️⃣ AI Analysis (Intent + Security Context)
-      console.log("wf Running AI Analysis...");
+      console.log("🧠 Running AI Analysis...");
       const aiResult = await analyzeWithAI(
         intentRules,
         {
