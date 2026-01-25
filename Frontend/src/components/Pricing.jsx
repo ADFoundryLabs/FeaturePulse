@@ -3,7 +3,7 @@ import './Pricing.css';
 
 const FEATURE_PRICES = { intent: 499, security: 499, summary: 299 };
 
-// Link to your GitHub App (Find this in App Settings -> Public Link)
+// REPLACE THIS with your specific GitHub App Link
 const GITHUB_APP_URL = "https://github.com/apps/featurepulse-demo/installations/new";
 
 export default function Pricing({ installationId }) {
@@ -12,10 +12,10 @@ export default function Pricing({ installationId }) {
   });
   const [activeSubscription, setActiveSubscription] = useState([]);
 
-  // Fetch current subscription status
   useEffect(() => {
     if (installationId) {
-      fetch(`http://localhost:3000/api/subscription/${installationId}`)
+      // Fetch current subscription from our backend
+      fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api/subscription/${installationId}`)
         .then(res => res.json())
         .then(data => setActiveSubscription(data.features || []))
         .catch(err => console.error("Failed to fetch sub", err));
@@ -23,8 +23,7 @@ export default function Pricing({ installationId }) {
   }, [installationId]);
 
   const toggleFeature = (feature) => {
-    // Don't allow toggling already purchased features
-    if (activeSubscription.includes(feature)) return;
+    if (activeSubscription.includes(feature)) return; // Already bought
     setSelectedFeatures(prev => ({ ...prev, [feature]: !prev[feature] }));
   };
 
@@ -33,7 +32,7 @@ export default function Pricing({ installationId }) {
     Object.keys(selectedFeatures).forEach(f => {
       if (selectedFeatures[f]) total += FEATURE_PRICES[f];
     });
-    // Simple logic: if buying all 3 NEW features
+    // 20% discount if buying all 3 NEW features
     if (selectedFeatures.intent && selectedFeatures.security && selectedFeatures.summary) {
       total = Math.floor(total * 0.8);
     }
@@ -44,7 +43,7 @@ export default function Pricing({ installationId }) {
     const featuresToBuy = Object.keys(selectedFeatures).filter(k => selectedFeatures[k]);
     
     try {
-      const res = await fetch('http://localhost:3000/api/create-order', {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api/create-order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ features: featuresToBuy, installationId })
@@ -58,8 +57,7 @@ export default function Pricing({ installationId }) {
         name: "FeaturePulse",
         order_id: order.id,
         handler: async function (response) {
-          // Verify
-          const verifyRes = await fetch('http://localhost:3000/api/verify-payment', {
+          const verifyRes = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api/verify-payment`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -71,7 +69,7 @@ export default function Pricing({ installationId }) {
           const data = await verifyRes.json();
           if (data.status === 'success') {
             alert("Success! Features Active.");
-            window.location.reload(); // Reload to update state
+            window.location.reload();
           }
         }
       };

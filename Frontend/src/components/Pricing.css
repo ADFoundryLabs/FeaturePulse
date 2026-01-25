@@ -1,0 +1,111 @@
+.pricing-container {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.header-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.badge {
+  background: #646cff;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: bold;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.feature-card {
+  background: #1a1a1a;
+  padding: 2rem;
+  border-radius: 12px;
+  border: 2px solid #333;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.feature-card:hover {
+  transform: translateY(-5px);
+  border-color: #646cff;
+}
+
+.feature-card.selected {
+  border-color: #646cff;
+  background: #242424;
+  box-shadow: 0 0 15px rgba(100, 108, 255, 0.2);
+}
+
+.feature-card.purchased {
+  border-color: #4caf50;
+  opacity: 0.8;
+  cursor: default;
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  color: #fff;
+}
+
+.price {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #646cff;
+  margin-top: 1rem;
+}
+
+.purchased .price {
+  color: #4caf50;
+}
+
+.checkout-bar {
+  background: #242424;
+  padding: 1.5rem;
+  border-radius: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  bottom: 20px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.pay-btn {
+  background: #646cff;
+  color: white;
+  border: none;
+  padding: 0.8rem 2rem;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.pay-btn:disabled {
+  background: #444;
+  cursor: not-allowed;
+}
+
+.install-btn {
+  display: inline-block;
+  background: #2ea44f;
+  color: white;
+  padding: 1rem 2rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: bold;
+  margin-top: 1rem;
+}

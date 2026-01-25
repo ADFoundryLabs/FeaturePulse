@@ -10,19 +10,16 @@ function App() {
   const [installationId, setInstallationId] = useState(null);
 
   useEffect(() => {
-    // 1. Check URL for installation_id (Github Redirect)
+    // 1. Check URL for installation_id (GitHub Redirect)
     const queryParams = new URLSearchParams(window.location.search);
     const urlId = queryParams.get('installation_id');
 
     if (urlId) {
-      // Save to storage so it persists on refresh
       localStorage.setItem('fp_installation_id', urlId);
       setInstallationId(urlId);
-      
-      // Clean URL (remove ugly query params)
+      // Clean URL
       window.history.replaceState({}, document.title, window.location.pathname);
-      
-      // Auto-switch to pricing if just installed
+      // Auto-switch to pricing
       setActiveTab('pricing');
     } else {
       // 2. Load from storage

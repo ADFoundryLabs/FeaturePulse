@@ -9,14 +9,14 @@ import { createAppAuth } from "@octokit/auth-app";
 import { fetchIntentRules, fetchPRChanges } from "./github.js";
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
-import { getSubscription, updateSubscription } from "./db.js"; // Import DB
+import { getSubscription, updateSubscription } from "./db.js"; 
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
 
-// REQUIRED for GitHub webhook signature verification
+// Webhook signature verification
 app.use(
   express.json({
     verify: (req, res, buf) => {
@@ -25,7 +25,6 @@ app.use(
   })
 );
 
-// Initialize Razorpay
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
@@ -33,23 +32,21 @@ const razorpay = new Razorpay({
 
 const PRICES = { intent: 499, security: 499, summary: 299 };
 
-// --- PAYMENT API ---
+// --- PAYMENT ENDPOINTS ---
 
 app.post("/api/create-order", async (req, res) => {
   try {
     const { features, installationId } = req.body;
-
     if (!installationId) return res.status(400).json({ error: "Missing Installation ID" });
-    if (!features?.length) return res.status(400).json({ error: "No features selected" });
-
+    
     let totalAmount = 0;
     features.forEach(f => { if (PRICES[f]) totalAmount += PRICES[f]; });
 
-    // 20% Bundle Discount
+    // 20% Discount for all 3 features
     if (features.length === 3) totalAmount = Math.floor(totalAmount * 0.8);
 
     const options = {
-      amount: totalAmount * 100, // in paise
+      amount: totalAmount * 100, // paise
       currency: "INR",
       receipt: `rcpt_${installationId}_${Date.now()}`,
     };
@@ -70,7 +67,6 @@ app.post("/api/verify-payment", (req, res) => {
   const generated_signature = hmac.digest("hex");
 
   if (generated_signature === razorpay_signature) {
-    // ✅ SAVE TO DB
     updateSubscription(installationId, features);
     res.json({ status: "success" });
   } else {
@@ -78,9 +74,6 @@ app.post("/api/verify-payment", (req, res) => {
   }
 });
 
-/**
- * API to check status (used by Frontend)
- */
 app.get("/api/subscription/:id", (req, res) => {
   const sub = getSubscription(req.params.id);
   res.json(sub);
@@ -115,18 +108,18 @@ app.post("/webhook", async (req, res) => {
       const installationId = req.body.installation.id;
       const [owner, repo] = req.body.repository.full_name.split("/");
 
-      // 🔍 1. CHECK DATABASE
+      // 🔍 CHECK DB FOR ACTIVE FEATURES
       const subscription = getSubscription(installationId);
       const activeFeatures = subscription.features;
 
-      console.log(`🤖 Installation ${installationId} Features: [${activeFeatures.join(', ')}]`);
+      console.log(`Checking Subscription for ${installationId}:`, activeFeatures);
 
       if (activeFeatures.length === 0) {
-        console.log("⚠️ No active subscription. Skipping.");
+        console.log("⚠️ No active subscription. Skipping analysis.");
         return res.sendStatus(200);
       }
 
-      // 🔍 2. PROCEED WITH ANALYSIS
+      // PROCEED WITH ANALYSIS
       const octokit = getInstallationOctokit(installationId);
       const intentRules = await fetchIntentRules(owner, repo);
       const prChanges = await fetchPRChanges(owner, repo, pr.number);
@@ -139,9 +132,8 @@ app.post("/webhook", async (req, res) => {
       const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
       const aiResult = await analyzeWithAI(intentRules, aiInput, prChanges, securityResult);
 
-      // Create Check Run
       let conclusion = aiResult.decision === "BLOCK" ? "failure" : "success";
-      
+
       await octokit.checks.create({
         owner,
         repo,
@@ -152,11 +144,10 @@ app.post("/webhook", async (req, res) => {
         output: {
           title: `Decision: ${aiResult.decision}`,
           summary: aiResult.summary,
-          text: "Full analysis in PR comments."
+          text: "See PR comment for details."
         }
       });
 
-      // Post Comment
       await octokit.issues.createComment({
         owner,
         repo,
