@@ -1,11 +1,12 @@
 import express from "express";
 import crypto from "crypto";
-import dotenv from "dotenv";
+import dotenv from "dotenv"; // Fixed typo here
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 
 import { fetchIntentRules, fetchPRChanges } from "./github.js";
 import { analyzeWithAI } from "./ai.js";
+import { analyzeSecurity } from "./security.js";
 
 dotenv.config();
 
@@ -64,33 +65,38 @@ app.post("/webhook", async (req, res) => {
       const octokit = getInstallationOctokit(installationId);
 
       // 1️⃣ Read intent.md
-      const intentRules = await fetchIntentRules(octokit, owner, repo);
+      const intentRules = await fetchIntentRules(owner, repo);
 
       // 2️⃣ Read PR file changes
       const prChanges = await fetchPRChanges(
-        octokit,
         owner,
         repo,
         pr.number
       );
 
-      // 3️⃣ AI analysis
+      // 3️⃣ NEW: Security Analysis (GuardPulse)
+      console.log("🛡️ Running Security Scan...");
+      const securityResult = await analyzeSecurity(prChanges);
+      console.log("   Security Risk:", securityResult.riskLevel);
+
+      // 4️⃣ AI Analysis (Intent + Security Context)
+      console.log("🧠 Running AI Analysis...");
       const aiResult = await analyzeWithAI(
         intentRules,
         {
           title: pr.title,
           body: pr.body
         },
-        prChanges
+        prChanges,
+        securityResult // Pass security context to AI
       );
 
-      const score = parseInt(aiResult.completion_score);
+      // Map AI decision to GitHub Check conclusion
+      let conclusion = "neutral";
+      if (aiResult.decision === "APPROVE") conclusion = "success";
+      else if (aiResult.decision === "BLOCK") conclusion = "failure";
 
-      let conclusion = "failure";
-      if (score >= 80) conclusion = "success";
-      else if (score >= 50) conclusion = "neutral";
-
-      // 4️⃣ Create GitHub Check
+      // 5️⃣ Create GitHub Check
       await octokit.checks.create({
         owner,
         repo,
@@ -99,31 +105,48 @@ app.post("/webhook", async (req, res) => {
         status: "completed",
         conclusion,
         output: {
-          title: `Intent Completion: ${aiResult.completion_score}`,
-          summary: aiResult.summary,
+          title: `Decision: ${aiResult.decision}`,
+          summary: `Risk: ${aiResult.security_risk} | Intent Score: ${aiResult.completion_score}`,
           text: `
-### ✅ Completed Features
+### 🛡️ FeaturePulse Decision: ${aiResult.decision}
+
+**Reasoning:**
+${aiResult.summary}
+
+---
+### 🔒 Security Analysis (GuardPulse)
+* **Risk Level:** ${securityResult.riskLevel}
+* **Sensitive Files:** ${securityResult.sensitiveFiles.length ? securityResult.sensitiveFiles.join(", ") : "None"}
+* **Vulnerabilities:** ${securityResult.vulnerabilities.length > 0 ? "⚠️ Found " + securityResult.vulnerabilities.length + " vulnerabilities" : "✅ None detected"}
+
+### ✅ Intent Alignment
 ${aiResult.completed_features.map(f => `- ${f}`).join("\n")}
 
-### ⚠️ Pending Features
+### ⚠️ Missing / Pending
 ${aiResult.pending_features.map(f => `- ${f}`).join("\n")}
           `
         }
       });
 
-      // 5️⃣ Comment on PR
+      // 6️⃣ Comment on PR
       await octokit.issues.createComment({
         owner,
         repo,
         issue_number: pr.number,
         body: `
-## 🤖 FeaturePulse Intent Analysis
+## 🤖 FeaturePulse Analysis
 
-**Completion Score:** ${aiResult.completion_score}  
-**Decision:** ${aiResult.decision}
+| Metric | Result |
+|--------|--------|
+| **Decision** | **${aiResult.decision}** |
+| **Intent Score** | ${aiResult.completion_score} |
+| **Security Risk** | ${aiResult.security_risk} |
 
 ### Summary
 ${aiResult.summary}
+
+---
+_Analyzed by FeaturePulse (GuardPulse Layer Active)_
         `
       });
 
