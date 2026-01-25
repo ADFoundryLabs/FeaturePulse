@@ -3,15 +3,6 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// Initialize a dedicated Octokit client for this module
-
-
-/**
- * Fetch intent.md rules from the repository.
- * Priority:
- * 1. .featurepulse/intent.md (Standard Config)
- * 2. Search entire repo for 'intent.md' (Fallback)
- */
 export async function fetchIntentRules(owner, repo) {
   // Helper to fetch content of a specific path
   const fetchContent = async (path) => {

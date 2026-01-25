@@ -4,14 +4,16 @@ import dotenv from "dotenv";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 
-import { fetchIntentRules } from "./github.js";
+import { fetchIntentRules, fetchPRChanges } from "./github.js";
 import { analyzeWithAI } from "./ai.js";
 
 dotenv.config();
 
 const app = express();
 
-// REQUIRED for GitHub signature verification
+/**
+ * REQUIRED for GitHub webhook signature verification
+ */
 app.use(
   express.json({
     verify: (req, res, buf) => {
@@ -20,15 +22,19 @@ app.use(
   })
 );
 
-// GitHub App auth
-const octokit = new Octokit({
-  authStrategy: createAppAuth,
-  auth: {
-    appId: process.env.APP_ID,
-    privateKey: process.env.PRIVATE_KEY,
-    installationId: process.env.INSTALLATION_ID
-  }
-});
+/**
+ * Create Octokit for a specific installation
+ */
+function getInstallationOctokit(installationId) {
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: process.env.APP_ID,
+      privateKey: process.env.PRIVATE_KEY,
+      installationId
+    }
+  });
+}
 
 app.post("/webhook", async (req, res) => {
   const signature = req.headers["x-hub-signature-256"];
@@ -36,13 +42,14 @@ app.post("/webhook", async (req, res) => {
   const digest = "sha256=" + hmac.update(req.rawBody).digest("hex");
 
   if (signature !== digest) {
+    console.warn("❌ Invalid webhook signature");
     return res.status(401).send("Invalid signature");
   }
 
   const event = req.headers["x-github-event"];
   const action = req.body.action;
 
-  console.log("📩 Webhook:", event, action);
+  console.log("📩 Webhook received:", event, action);
 
   if (
     event === "pull_request" &&
@@ -50,20 +57,22 @@ app.post("/webhook", async (req, res) => {
   ) {
     try {
       const pr = req.body.pull_request;
+      const installationId = req.body.installation.id;
       const [owner, repo] = req.body.repository.full_name.split("/");
 
-      // 1️⃣ Read intent.md
-      const intentRules = await fetchIntentRules(owner, repo);
+      // 🔐 Create installation-scoped Octokit
+      const octokit = getInstallationOctokit(installationId);
 
-      // 2️⃣ Get PR diff
-      const diffResponse = await octokit.pulls.get({
+      // 1️⃣ Read intent.md
+      const intentRules = await fetchIntentRules(octokit, owner, repo);
+
+      // 2️⃣ Read PR file changes
+      const prChanges = await fetchPRChanges(
+        octokit,
         owner,
         repo,
-        pull_number: pr.number,
-        mediaType: { format: "diff" }
-      });
-
-      const diffText = diffResponse.data;
+        pr.number
+      );
 
       // 3️⃣ AI analysis
       const aiResult = await analyzeWithAI(
@@ -72,7 +81,7 @@ app.post("/webhook", async (req, res) => {
           title: pr.title,
           body: pr.body
         },
-        diffText
+        prChanges
       );
 
       const score = parseInt(aiResult.completion_score);
@@ -118,10 +127,13 @@ ${aiResult.summary}
         `
       });
 
-      console.log("✅ FeaturePulse analysis posted");
+      console.log("✅ FeaturePulse analysis completed");
 
     } catch (err) {
       console.error("❌ FeaturePulse error:", err.message);
+      if (err.response) {
+        console.error("GitHub API error:", err.response.data);
+      }
     }
   }
 
