@@ -4,16 +4,23 @@ import dotenv from "dotenv";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 
+import { fetchIntentRules } from "./github.js";
+import { analyzeWithAI } from "./ai.js";
+
 dotenv.config();
 
 const app = express();
 
-app.use(express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
-  }
-}));
+// REQUIRED for GitHub signature verification
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    }
+  })
+);
 
+// GitHub App auth
 const octokit = new Octokit({
   authStrategy: createAppAuth,
   auth: {
@@ -23,27 +30,7 @@ const octokit = new Octokit({
   }
 });
 
-/**
- * Decision based on AI confidence score
- */
-function decideFromConfidence(score) {
-  if (score < 50) {
-    return { decision: "BLOCK", conclusion: "failure" };
-  }
-  if (score < 80) {
-    return { decision: "WARN", conclusion: "neutral" };
-  }
-  return { decision: "APPROVE", conclusion: "success" };
-}
-
 app.post("/webhook", async (req, res) => {
-  console.log(
-    "📩 Webhook received:",
-    req.headers["x-github-event"],
-    req.body.action
-  );
-
-  // Verify webhook signature
   const signature = req.headers["x-hub-signature-256"];
   const hmac = crypto.createHmac("sha256", process.env.WEBHOOK_SECRET);
   const digest = "sha256=" + hmac.update(req.rawBody).digest("hex");
@@ -53,26 +40,48 @@ app.post("/webhook", async (req, res) => {
   }
 
   const event = req.headers["x-github-event"];
+  const action = req.body.action;
+
+  console.log("📩 Webhook:", event, action);
 
   if (
     event === "pull_request" &&
-    ["opened", "synchronize", "reopened"].includes(req.body.action)
+    ["opened", "synchronize", "reopened"].includes(action)
   ) {
     try {
       const pr = req.body.pull_request;
       const [owner, repo] = req.body.repository.full_name.split("/");
-      const targetBranch = pr.base.ref;
 
-      // 🔜 TEMP MOCK (will come from ai.js)
-      const aiResult = {
-        intent: "Documentation Update",
-        confidence: 82,
-        reason: "PR modifies markdown files and aligns with intent.md rules."
-      };
+      // 1️⃣ Read intent.md
+      const intentRules = await fetchIntentRules(owner, repo);
 
-      const { decision, conclusion } = decideFromConfidence(aiResult.confidence);
+      // 2️⃣ Get PR diff
+      const diffResponse = await octokit.pulls.get({
+        owner,
+        repo,
+        pull_number: pr.number,
+        mediaType: { format: "diff" }
+      });
 
-      // Create GitHub Check
+      const diffText = diffResponse.data;
+
+      // 3️⃣ AI analysis
+      const aiResult = await analyzeWithAI(
+        intentRules,
+        {
+          title: pr.title,
+          body: pr.body
+        },
+        diffText
+      );
+
+      const score = parseInt(aiResult.completion_score);
+
+      let conclusion = "failure";
+      if (score >= 80) conclusion = "success";
+      else if (score >= 50) conclusion = "neutral";
+
+      // 4️⃣ Create GitHub Check
       await octokit.checks.create({
         owner,
         repo,
@@ -81,28 +90,36 @@ app.post("/webhook", async (req, res) => {
         status: "completed",
         conclusion,
         output: {
-          title: `FeaturePulse Decision: ${decision}`,
-          summary: `Intent: ${aiResult.intent}\nConfidence: ${aiResult.confidence}%\n\n${aiResult.reason}`
+          title: `Intent Completion: ${aiResult.completion_score}`,
+          summary: aiResult.summary,
+          text: `
+### ✅ Completed Features
+${aiResult.completed_features.map(f => `- ${f}`).join("\n")}
+
+### ⚠️ Pending Features
+${aiResult.pending_features.map(f => `- ${f}`).join("\n")}
+          `
         }
       });
 
-      // Create PR Comment
+      // 5️⃣ Comment on PR
       await octokit.issues.createComment({
         owner,
         repo,
         issue_number: pr.number,
-        body: `### 🤖 FeaturePulse AI Intent Analysis
+        body: `
+## 🤖 FeaturePulse Intent Analysis
 
-**Detected Intent:** ${aiResult.intent}  
-**Confidence Score:** ${aiResult.confidence}%  
-**Decision:** ${decision}  
-**Target Branch:** \`${targetBranch}\`
+**Completion Score:** ${aiResult.completion_score}  
+**Decision:** ${aiResult.decision}
 
-${aiResult.reason}
-`
+### Summary
+${aiResult.summary}
+        `
       });
 
-      console.log("✅ FeaturePulse intent analysis posted");
+      console.log("✅ FeaturePulse analysis posted");
+
     } catch (err) {
       console.error("❌ FeaturePulse error:", err.message);
     }
@@ -112,5 +129,5 @@ ${aiResult.reason}
 });
 
 app.listen(3000, () => {
-  console.log("🚀 Server running on port 3000");
+  console.log("🚀 FeaturePulse running on port 3000");
 });
