@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import './Pricing.css'; // Ensure you have the CSS file too!
 
 const FEATURE_PRICES = { intent: 499, security: 499, summary: 299 };
-const GITHUB_APP_URL = "hhttps://github.com/apps/featurepulse-merge"; // Update this with YOUR App Link
+const GITHUB_APP_URL = "https://github.com/apps/featurepulse-merge"; // Update this with YOUR App Link
 
 export default function Pricing({ installationId }) {
   const [selectedFeatures, setSelectedFeatures] = useState({
