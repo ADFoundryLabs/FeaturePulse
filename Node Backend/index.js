@@ -1,20 +1,22 @@
 import express from "express";
 import crypto from "crypto";
-import dotenv from "dotenv"; // Fixed typo here
+import dotenv from "dotenv";
+import cors from "cors";
+import Razorpay from "razorpay";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 
 import { fetchIntentRules, fetchPRChanges } from "./github.js";
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
+import { getSubscription, updateSubscription } from "./db.js"; // Import DB
 
 dotenv.config();
 
 const app = express();
+app.use(cors());
 
-/**
- * REQUIRED for GitHub webhook signature verification
- */
+// REQUIRED for GitHub webhook signature verification
 app.use(
   express.json({
     verify: (req, res, buf) => {
@@ -23,9 +25,69 @@ app.use(
   })
 );
 
+// Initialize Razorpay
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
+const PRICES = { intent: 499, security: 499, summary: 299 };
+
+// --- PAYMENT API ---
+
+app.post("/api/create-order", async (req, res) => {
+  try {
+    const { features, installationId } = req.body;
+
+    if (!installationId) return res.status(400).json({ error: "Missing Installation ID" });
+    if (!features?.length) return res.status(400).json({ error: "No features selected" });
+
+    let totalAmount = 0;
+    features.forEach(f => { if (PRICES[f]) totalAmount += PRICES[f]; });
+
+    // 20% Bundle Discount
+    if (features.length === 3) totalAmount = Math.floor(totalAmount * 0.8);
+
+    const options = {
+      amount: totalAmount * 100, // in paise
+      currency: "INR",
+      receipt: `rcpt_${installationId}_${Date.now()}`,
+    };
+
+    const order = await razorpay.orders.create(options);
+    res.json(order);
+  } catch (error) {
+    console.error("Razorpay Error:", error);
+    res.status(500).send("Error creating order");
+  }
+});
+
+app.post("/api/verify-payment", (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, features, installationId } = req.body;
+
+  const hmac = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET);
+  hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
+  const generated_signature = hmac.digest("hex");
+
+  if (generated_signature === razorpay_signature) {
+    // ✅ SAVE TO DB
+    updateSubscription(installationId, features);
+    res.json({ status: "success" });
+  } else {
+    res.status(400).json({ status: "failure" });
+  }
+});
+
 /**
- * Create Octokit for a specific installation
+ * API to check status (used by Frontend)
  */
+app.get("/api/subscription/:id", (req, res) => {
+  const sub = getSubscription(req.params.id);
+  res.json(sub);
+});
+
+// --- GITHUB WEBHOOK ---
+
 function getInstallationOctokit(installationId) {
   return new Octokit({
     authStrategy: createAppAuth,
@@ -42,61 +104,44 @@ app.post("/webhook", async (req, res) => {
   const hmac = crypto.createHmac("sha256", process.env.WEBHOOK_SECRET);
   const digest = "sha256=" + hmac.update(req.rawBody).digest("hex");
 
-  if (signature !== digest) {
-    console.warn("❌ Invalid webhook signature");
-    return res.status(401).send("Invalid signature");
-  }
+  if (signature !== digest) return res.status(401).send("Invalid signature");
 
   const event = req.headers["x-github-event"];
   const action = req.body.action;
 
-  console.log("📩 Webhook received:", event, action);
-
-  if (
-    event === "pull_request" &&
-    ["opened", "synchronize", "reopened"].includes(action)
-  ) {
+  if (event === "pull_request" && ["opened", "synchronize", "reopened"].includes(action)) {
     try {
       const pr = req.body.pull_request;
       const installationId = req.body.installation.id;
       const [owner, repo] = req.body.repository.full_name.split("/");
 
-      // 🔐 Create installation-scoped Octokit
+      // 🔍 1. CHECK DATABASE
+      const subscription = getSubscription(installationId);
+      const activeFeatures = subscription.features;
+
+      console.log(`🤖 Installation ${installationId} Features: [${activeFeatures.join(', ')}]`);
+
+      if (activeFeatures.length === 0) {
+        console.log("⚠️ No active subscription. Skipping.");
+        return res.sendStatus(200);
+      }
+
+      // 🔍 2. PROCEED WITH ANALYSIS
       const octokit = getInstallationOctokit(installationId);
-
-      // 1️⃣ Read intent.md
       const intentRules = await fetchIntentRules(owner, repo);
+      const prChanges = await fetchPRChanges(owner, repo, pr.number);
 
-      // 2️⃣ Read PR file changes
-      const prChanges = await fetchPRChanges(
-        owner,
-        repo,
-        pr.number
-      );
+      let securityResult = { riskLevel: "UNKNOWN", sensitiveFiles: [], vulnerabilities: [] };
+      if (activeFeatures.includes('security')) {
+        securityResult = await analyzeSecurity(prChanges);
+      }
 
-      // 3️⃣ NEW: Security Analysis (GuardPulse)
-      console.log("🛡️ Running Security Scan...");
-      const securityResult = await analyzeSecurity(prChanges);
-      console.log("   Security Risk:", securityResult.riskLevel);
+      const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
+      const aiResult = await analyzeWithAI(intentRules, aiInput, prChanges, securityResult);
 
-      // 4️⃣ AI Analysis (Intent + Security Context)
-      console.log("🧠 Running AI Analysis...");
-      const aiResult = await analyzeWithAI(
-        intentRules,
-        {
-          title: pr.title,
-          body: pr.body
-        },
-        prChanges,
-        securityResult // Pass security context to AI
-      );
-
-      // Map AI decision to GitHub Check conclusion
-      let conclusion = "neutral";
-      if (aiResult.decision === "APPROVE") conclusion = "success";
-      else if (aiResult.decision === "BLOCK") conclusion = "failure";
-
-      // 5️⃣ Create GitHub Check
+      // Create Check Run
+      let conclusion = aiResult.decision === "BLOCK" ? "failure" : "success";
+      
       await octokit.checks.create({
         owner,
         repo,
@@ -106,63 +151,26 @@ app.post("/webhook", async (req, res) => {
         conclusion,
         output: {
           title: `Decision: ${aiResult.decision}`,
-          summary: `Risk: ${aiResult.security_risk} | Intent Score: ${aiResult.completion_score}`,
-          text: `
-### 🛡️ FeaturePulse Decision: ${aiResult.decision}
-
-**Reasoning:**
-${aiResult.summary}
-
----
-### 🔒 Security Analysis (GuardPulse)
-* **Risk Level:** ${securityResult.riskLevel}
-* **Sensitive Files:** ${securityResult.sensitiveFiles.length ? securityResult.sensitiveFiles.join(", ") : "None"}
-* **Vulnerabilities:** ${securityResult.vulnerabilities.length > 0 ? "⚠️ Found " + securityResult.vulnerabilities.length + " vulnerabilities" : "✅ None detected"}
-
-### ✅ Intent Alignment
-${aiResult.completed_features.map(f => `- ${f}`).join("\n")}
-
-### ⚠️ Missing / Pending
-${aiResult.pending_features.map(f => `- ${f}`).join("\n")}
-          `
+          summary: aiResult.summary,
+          text: "Full analysis in PR comments."
         }
       });
 
-      // 6️⃣ Comment on PR
+      // Post Comment
       await octokit.issues.createComment({
         owner,
         repo,
         issue_number: pr.number,
-        body: `
-## 🤖 FeaturePulse Analysis
-
-| Metric | Result |
-|--------|--------|
-| **Decision** | **${aiResult.decision}** |
-| **Intent Score** | ${aiResult.completion_score} |
-| **Security Risk** | ${aiResult.security_risk} |
-
-### Summary
-${aiResult.summary}
-
----
-_Analyzed by FeaturePulse (GuardPulse Layer Active)_
-        `
+        body: `## 🤖 FeaturePulse Analysis\n\n${aiResult.summary}`
       });
 
-      console.log("✅ FeaturePulse analysis completed");
-
     } catch (err) {
-      console.error("❌ FeaturePulse error:", err.message);
-      if (err.response) {
-        console.error("GitHub API error:", err.response.data);
-      }
+      console.error("Webhook Error:", err);
     }
   }
-
   res.sendStatus(200);
 });
 
 app.listen(3000, () => {
-  console.log("🚀 FeaturePulse running on port 3000");
+  console.log("🚀 Server running on port 3000");
 });
