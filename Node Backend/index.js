@@ -10,7 +10,7 @@ import { fetchIntentRules, fetchPRChanges, fetchRepoStructure } from "./github.j
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
 import { analyzeRedundancy } from "./redundancy.js";
-import { getSubscription, updateSubscription, deleteSubscription } from "./db.js"; 
+import { getSubscription, updateSubscription, deleteSubscription, updateSettings } from "./db.js"; 
 
 dotenv.config();
 
@@ -33,7 +33,7 @@ const razorpay = new Razorpay({
 
 const PRICES = { intent: 499, security: 499, summary: 299 };
 
-// --- INSTALLATION VERIFICATION ---
+// --- NEW: INSTALLATION VERIFICATION ENDPOINT ---
 app.get("/api/installation-status/:id", async (req, res) => {
   try {
     const appOctokit = new Octokit({
@@ -52,6 +52,16 @@ app.get("/api/installation-status/:id", async (req, res) => {
   } catch (error) {
     res.json({ valid: false });
   }
+});
+
+// --- SETTINGS ENDPOINTS ---
+
+app.post("/api/settings", (req, res) => {
+  const { installationId, settings } = req.body;
+  if (!installationId || !settings) return res.status(400).send("Missing data");
+  
+  updateSettings(installationId, settings);
+  res.json({ status: "success", settings });
 });
 
 // --- PAYMENT ENDPOINTS ---
@@ -123,13 +133,15 @@ app.post("/webhook", async (req, res) => {
   const event = req.headers["x-github-event"];
   const action = req.body.action;
 
+  // 1. Handle Uninstalls
   if (event === "installation" && action === "deleted") {
     const installationId = req.body.installation.id;
-    console.log(`❌ Installation ${installationId} deleted.`);
+    console.log(`❌ Installation ${installationId} deleted. Cleaning up DB.`);
     deleteSubscription(installationId);
     return res.sendStatus(200);
   }
 
+  // 2. Handle Pull Requests
   if (event === "pull_request" && ["opened", "synchronize", "reopened"].includes(action)) {
     try {
       const pr = req.body.pull_request;
@@ -138,16 +150,18 @@ app.post("/webhook", async (req, res) => {
 
       const subscription = getSubscription(installationId);
       const activeFeatures = subscription.features;
+      const authorityMode = subscription.settings?.authorityMode || "gatekeeper";
 
       console.log(`Checking Subscription for ${installationId}:`, activeFeatures);
 
-      if (!activeFeatures || activeFeatures.length === 0) {
+      if (activeFeatures.length === 0) {
         console.log("⚠️ No active subscription. Skipping analysis.");
         return res.sendStatus(200);
       }
 
       const octokit = getInstallationOctokit(installationId);
       
+      // Post "Pending" status
       await octokit.checks.create({
         owner,
         repo,
@@ -156,7 +170,7 @@ app.post("/webhook", async (req, res) => {
         status: "in_progress",
         output: {
           title: "Analyzing...",
-          summary: "Checking intent, security, and redundancy."
+          summary: "FeaturePulse is checking product intent and security."
         }
       });
 
@@ -177,7 +191,7 @@ app.post("/webhook", async (req, res) => {
       }
 
       const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
-      const aiResult = await analyzeWithAI(
+      let aiResult = await analyzeWithAI(
           intentRules, 
           aiInput, 
           prChanges, 
@@ -185,7 +199,22 @@ app.post("/webhook", async (req, res) => {
           redundancyResult
       );
 
-      let conclusion = aiResult.decision === "BLOCK" ? "failure" : "success";
+      // --- MERGE AUTHORITY ENFORCEMENT ---
+      let conclusion = "success"; // Default to passing
+      let decisionDisplay = aiResult.decision;
+
+      if (aiResult.decision === "BLOCK") {
+        if (authorityMode === "gatekeeper") {
+          // Gatekeeper: BLOCK means FAIL check (red X)
+          conclusion = "failure";
+        } else if (authorityMode === "advisory") {
+          // Advisory: BLOCK means WARN (green check, but warning text)
+          conclusion = "success"; // Or 'neutral'
+          decisionDisplay = "WARN (Advisory Override)";
+          aiResult.summary = `**⚠️ [ADVISORY MODE]** FeaturePulse recommends **BLOCK**, but merge is allowed in Advisory mode.\n\n${aiResult.summary}`;
+        }
+      } 
+      // Auto-approve logic is implicit: 'success' allows merge.
 
       await octokit.checks.create({
         owner,
@@ -195,7 +224,7 @@ app.post("/webhook", async (req, res) => {
         status: "completed",
         conclusion,
         output: {
-          title: `Decision: ${aiResult.decision}`,
+          title: `Decision: ${decisionDisplay}`,
           summary: aiResult.summary,
           text: "See PR comment for details."
         }
@@ -205,7 +234,7 @@ app.post("/webhook", async (req, res) => {
         owner,
         repo,
         issue_number: pr.number,
-        body: `## 🤖 FeaturePulse Analysis\n\n${aiResult.summary}`
+        body: `## 🤖 FeaturePulse Analysis\n\n**Authority Mode:** ${authorityMode.toUpperCase()}\n\n${aiResult.summary}`
       });
 
     } catch (err) {
@@ -215,8 +244,6 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 });
 
-// ✅ FIX: Use dynamic PORT for Railway
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+app.listen(3000, () => {
+  console.log("🚀 Server running on port 3000");
 });
