@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { fetchDashboardStats, fetchRecentAnalyses, fetchSubscription, saveSettings } from '../services/api'
-import './Dashboard.css'
+import './Dashboard.css' //
 
 function Dashboard({ installationId }) {
   const [stats, setStats] = useState({ totalPRs: 0, approved: 0, warnings: 0, blocked: 0 })
@@ -147,14 +147,14 @@ function Dashboard({ installationId }) {
           ) : (
             recentAnalyses.map(analysis => (
               <div key={analysis.id} className="analysis-card">
+                {/* HEADER: Title and Score Only */}
                 <div className="analysis-header">
                   <div className="analysis-title-section">
                     <span className="pr-number">#{analysis.prNumber}</span>
                     <h4 className="pr-title">{analysis.title}</h4>
                   </div>
-
-                  {/*  */}
-                  {/* --- NEW SCORE BAR DISPLAY --- */}
+                  
+                  {/* Score Display: Sits on the right of the title */}
                   <div className="score-display">
                     <div className="score-text" style={{ color: getScoreColor(analysis.score) }}>
                       {analysis.score}%
@@ -165,15 +165,14 @@ function Dashboard({ installationId }) {
                         style={{ 
                           width: `${analysis.score}%`, 
                           backgroundColor: getScoreColor(analysis.score),
-                          boxShadow: `0 0 8px ${getScoreColor(analysis.score)}` // Neon glow
+                          boxShadow: `0 0 8px ${getScoreColor(analysis.score)}`
                         }}
                       />
                     </div>
                   </div>
-                  {/* ----------------------------- */}
-                 
+                </div>
 
-                {/*  */}
+                {/* META: Sits BELOW the header now */}
                 <div className="analysis-meta">
                   <span 
                     className="decision-badge"
