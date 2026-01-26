@@ -13,44 +13,25 @@ function saveDB(data) {
 export function getSubscription(installationId) {
   const db = loadDB();
   
-  // 🚨 HACKATHON MODE FIX: 
-  // If the DB is empty (Railway wiped it), return ALL features as active.
+  // 🚨 HACKATHON MODE (Stability Fix): 
+  // If the DB is empty (Railway wiped it), return default active features.
   if (!db[installationId]) {
-    console.log(`⚠️ No DB record for ${installationId}. Using Default Subscription (Hackathon Mode).`);
-    return { 
-      features: ['intent', 'security', 'summary'], 
-      settings: { authorityMode: "gatekeeper" } 
-    };
+    console.log(`⚠️ No DB record for ${installationId}. Using Default Subscription.`);
+    return { features: ['intent', 'security', 'summary'] };
   }
-
-  // Ensure settings exist on existing records
-  const sub = db[installationId];
-  if (!sub.settings) sub.settings = { authorityMode: "gatekeeper" };
   
-  return sub;
+  return db[installationId];
 }
 
 export function updateSubscription(installationId, features) {
   const db = loadDB();
-  const current = db[installationId] || { settings: { authorityMode: "gatekeeper" } };
+  // Preserve existing data, just update features
+  const current = db[installationId] || {};
   
   db[installationId] = { 
     ...current,
     features, 
     updatedAt: new Date().toISOString() 
-  };
-  saveDB(db);
-}
-
-export function updateSettings(installationId, settings) {
-  const db = loadDB();
-  // Default to all features if creating new record via settings
-  const current = db[installationId] || { features: ['intent', 'security', 'summary'] };
-  
-  db[installationId] = {
-    ...current,
-    settings: { ...current.settings, ...settings },
-    updatedAt: new Date().toISOString()
   };
   saveDB(db);
 }
