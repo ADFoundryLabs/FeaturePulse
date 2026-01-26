@@ -10,7 +10,7 @@ import { fetchIntentRules, fetchPRChanges, fetchRepoStructure } from "./github.j
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
 import { analyzeRedundancy } from "./redundancy.js";
-import { getSubscription, updateSubscription } from "./db.js"; 
+import { getSubscription, updateSubscription, deleteSubscription } from "./db.js"; 
 
 dotenv.config();
 
@@ -33,6 +33,29 @@ const razorpay = new Razorpay({
 
 const PRICES = { intent: 499, security: 499, summary: 299 };
 
+// --- NEW: INSTALLATION VERIFICATION ENDPOINT ---
+app.get("/api/installation-status/:id", async (req, res) => {
+  try {
+    const appOctokit = new Octokit({
+      authStrategy: createAppAuth,
+      auth: {
+        appId: process.env.APP_ID,
+        privateKey: process.env.PRIVATE_KEY,
+      },
+    });
+
+    // Attempt to fetch the installation. If it throws 404, it's uninstalled.
+    await appOctokit.apps.getInstallation({
+      installation_id: req.params.id,
+    });
+
+    res.json({ valid: true });
+  } catch (error) {
+    // If error is 404, the installation is definitely gone
+    res.json({ valid: false });
+  }
+});
+
 // --- PAYMENT ENDPOINTS ---
 
 app.post("/api/create-order", async (req, res) => {
@@ -43,7 +66,6 @@ app.post("/api/create-order", async (req, res) => {
     let totalAmount = 0;
     features.forEach(f => { if (PRICES[f]) totalAmount += PRICES[f]; });
 
-    // 20% Discount for all 3 features
     if (features.length === 3) totalAmount = Math.floor(totalAmount * 0.8);
 
     const options = {
@@ -103,13 +125,21 @@ app.post("/webhook", async (req, res) => {
   const event = req.headers["x-github-event"];
   const action = req.body.action;
 
+  // 1. Handle Uninstalls
+  if (event === "installation" && action === "deleted") {
+    const installationId = req.body.installation.id;
+    console.log(`❌ Installation ${installationId} deleted. Cleaning up DB.`);
+    deleteSubscription(installationId);
+    return res.sendStatus(200);
+  }
+
+  // 2. Handle Pull Requests
   if (event === "pull_request" && ["opened", "synchronize", "reopened"].includes(action)) {
     try {
       const pr = req.body.pull_request;
       const installationId = req.body.installation.id;
       const [owner, repo] = req.body.repository.full_name.split("/");
 
-      // 🔍 CHECK DB FOR ACTIVE FEATURES
       const subscription = getSubscription(installationId);
       const activeFeatures = subscription.features;
 
@@ -120,38 +150,30 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
 
-      // PROCEED WITH ANALYSIS
       const octokit = getInstallationOctokit(installationId);
-      
-      // Fetch Intent (Pass octokit instance)
       const intentRules = await fetchIntentRules(octokit, owner, repo);
-      // Fetch PR Changes (Pass octokit instance)
       const prChanges = await fetchPRChanges(octokit, owner, repo, pr.number);
 
-      // --- REDUNDANCY DETECTION ---
       let redundancyResult = [];
       try {
-        // Fetch repo structure to compare files against
         const existingFiles = await fetchRepoStructure(octokit, owner, repo, pr.base.ref);
         redundancyResult = analyzeRedundancy(prChanges, existingFiles);
       } catch (err) {
         console.error("Redundancy check failed:", err);
       }
-      
-      // --- SECURITY ANALYSIS ---
+
       let securityResult = { riskLevel: "UNKNOWN", sensitiveFiles: [], vulnerabilities: [] };
       if (activeFeatures.includes('security')) {
         securityResult = await analyzeSecurity(prChanges);
       }
 
-      // --- AI ANALYSIS ---
       const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
       const aiResult = await analyzeWithAI(
           intentRules, 
           aiInput, 
           prChanges, 
           securityResult, 
-          redundancyResult // Pass redundancy findings
+          redundancyResult
       );
 
       let conclusion = aiResult.decision === "BLOCK" ? "failure" : "success";
