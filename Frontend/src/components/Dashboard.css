@@ -190,7 +190,12 @@
   overflow: hidden;
   position: relative;
 }
-
+.score-badge{
+  margin-bottom: 1rem;
+}
+.decision-badge{
+  margin-right: 1rem;
+}
 .score-fill {
   height: 100%;
   border-radius: 10px;
