@@ -38,69 +38,63 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
   
   // Format security findings
   const securityContext = `
-  [SECURITY SCAN RESULTS]
-  Risk Level: ${securityResult.riskLevel}
-  Sensitive Files Touched: ${securityResult.sensitiveFiles.length > 0 ? securityResult.sensitiveFiles.join(", ") : "None"}
-  Vulnerabilities Found: ${JSON.stringify(securityResult.vulnerabilities)}
+  [SECURITY SCAN DATA]
+  - Risk Level: ${securityResult.riskLevel}
+  - Sensitive Files: ${securityResult.sensitiveFiles.length > 0 ? securityResult.sensitiveFiles.join(", ") : "None"}
+  - Vulnerabilities: ${JSON.stringify(securityResult.vulnerabilities)}
   `;
 
   // Format redundancy findings
   const redundancyContext = `
-  [REDUNDANCY CHECKS]
-  ${redundancyResult && redundancyResult.length > 0 ? redundancyResult.join("\n- ") : "No obvious redundancy detected."}
+  [REDUNDANCY SCAN DATA]
+  ${redundancyResult && redundancyResult.length > 0 ? redundancyResult.join("\n- ") : "No code redundancy detected."}
   `;
 
+  // --- ENHANCED PRD-STYLE PROMPT ---
   const prompt = `
-  You are a Senior Project Manager Bot named FeaturePulse.
+  You are 'FeaturePulse', a Senior Product Quality & Security Analyst.
   
-  CORE INSTRUCTIONS:
-  1. Read the [PROJECT INTENT RULES], [SECURITY SCAN RESULTS], and [REDUNDANCY CHECKS].
-  2. Analyze the [FILE CHANGES] to see if they align with intent.
-  3. Combine factors to form a FINAL DECISION based on this Logic Matrix:
+  YOUR MISSION:
+  Conduct a rigorous review of the [CODE CHANGES] against the [PROJECT INTENT (PRD)].
+  Generate a structured compliance report in JSON format.
   
-  [DECISION LOGIC MATRIX]
-  - IF Security Risk = "HIGH" or "CRITICAL" -> Decision MUST be "BLOCK" (Reason: Security Risk)
-  - IF Intent Match < 50% -> Decision MUST be "BLOCK" (Reason: Misalignment)
-  - IF [REDUNDANCY CHECKS] detected issues -> Decision should be "WARN" (unless Security/Intent dictates BLOCK)
-  - IF Security Risk = "MEDIUM" -> Decision is "WARN"
-  - IF Intent Match >= 80% AND Security = "LOW" AND No Redundancy -> Decision is "APPROVE"
-  - ELSE -> Decision is "WARN"
-
-  [SUMMARIZATION INSTRUCTIONS]
-  Generate 3 specific types of summaries for this Pull Request:
-  1. "simple_summary": For non-technical stakeholders. Use easy language, analogies, and focus on the "what" and "why" (business value).
-  2. "developer_summary": For engineers. Use technical terminology, mention specific files/functions modified, architectural impact, and implementation details.
-  3. "standard_summary": A balanced professional summary explaining the decision and key findings (Status Quo).
-
   ---
-  [PROJECT INTENT RULES]
+  [1. PROJECT INTENT (PRD / REQUIREMENTS)]
   ${intentRules}
   
+  [2. AUTOMATED SECURITY REPORT]
   ${securityContext}
 
+  [3. CODE REDUNDANCY REPORT]
   ${redundancyContext}
-  ---
 
-  [PR CONTEXT]
+  [4. PULL REQUEST METADATA]
   Title: ${prDetails.title}
   Description: ${prDetails.body || "No description provided."}
   
-  [FILE CHANGES]
-  ${fileChanges.substring(0, 8000)} ... (truncated)
+  [5. CODE IMPLEMENTATION (DIFF)]
+  ${fileChanges.substring(0, 12000)} ... (truncated if too long)
+  ---
 
-  RESPONSE FORMAT (JSON ONLY):
+  [DECISION LOGIC MATRIX]
+  - **BLOCK**: If Security is HIGH/CRITICAL OR Intent Alignment < 50%.
+  - **WARN**: If Redundancy found OR Security is MEDIUM OR Intent Alignment < 80%.
+  - **APPROVE**: If Intent Alignment > 80% AND Security LOW AND No Redundancy.
+
+  RESPONSE FORMAT (Strict JSON Only):
   {
-    "completion_score": "Percentage (0-100%)",
-    "security_risk": "${securityResult.riskLevel}",
-    "redundancy_detected": ${redundancyResult && redundancyResult.length > 0},
-    "completed_features": ["List of intent items FULLY implemented"],
-    "pending_features": ["List of intent items MISSING"],
     "decision": "APPROVE" | "WARN" | "BLOCK",
-    "summaries": {
-        "simple": "Simple language summary for non-techies...",
-        "developer": "Technical summary for devs...",
-        "standard": "Standard professional summary..."
-    }
+    "completion_score": "Percentage (0-100%)",
+    "prd_analysis": {
+      "fully_implemented": ["List of intent features clearly found in code"],
+      "missing_features": ["List of intent features NOT found"],
+      "out_of_scope": ["New features added that were NOT in the Intent/PRD"]
+    },
+    "risk_assessment": {
+      "security_level": "${securityResult.riskLevel}",
+      "concerns": ["List specific security or redundancy concerns"]
+    },
+    "summary": "A Markdown-formatted string. MUST be structured with these headers: '## 📋 PRD Compliance', '## 🛡️ Security & Quality', '## 💡 Recommendations'. Provide specific, actionable feedback."
   }
   `;
 
@@ -112,13 +106,14 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
+      // Clean up markdown code blocks if Gemini adds them
       jsonStr = text.replace(/```json/g, "").replace(/```/g, "").trim();
     } 
     else if (useOpenRouter && openAI) {
       const completion = await openAI.chat.completions.create({
         model: "google/gemini-2.0-flash-001",
         messages: [
-          { role: "system", content: "You are a helpful AI that strictly responds in JSON." },
+          { role: "system", content: "You are a specialized JSON-outputting API. Do not output markdown blocks." },
           { role: "user", content: prompt }
         ],
       });
@@ -129,21 +124,23 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
       throw new Error("No AI provider configured.");
     }
 
-    return JSON.parse(jsonStr);
+    // Parse and Return
+    const parsed = JSON.parse(jsonStr);
+    
+    // Ensure back-compat with index.js if the AI changes structure slightly
+    if (!parsed.completed_features) parsed.completed_features = parsed.prd_analysis?.fully_implemented || [];
+    if (!parsed.pending_features) parsed.pending_features = parsed.prd_analysis?.missing_features || [];
+
+    return parsed;
 
   } catch (error) {
-    console.error("AI Error:", error);
+    console.error("AI Analysis Error:", error);
     return {
       completion_score: "0%",
-      security_risk: "UNKNOWN",
-      completed_features: [],
-      pending_features: ["Analysis Failed"],
       decision: "WARN",
-      summaries: {
-        simple: "Analysis failed.",
-        developer: "Analysis failed due to an error.",
-        standard: "I encountered an error analyzing your code. Please check your API keys."
-      }
+      summary: "⚠️ **Analysis Failed**: I encountered an error connecting to the AI provider. Please check the server logs.",
+      completed_features: [],
+      pending_features: ["Analysis Error"]
     };
   }
 }
