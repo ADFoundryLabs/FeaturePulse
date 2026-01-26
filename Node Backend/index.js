@@ -10,7 +10,8 @@ import { fetchIntentRules, fetchPRChanges, fetchRepoStructure } from "./github.j
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
 import { analyzeRedundancy } from "./redundancy.js";
-import { getSubscription, updateSubscription, deleteSubscription, updateSettings } from "./db.js"; 
+// Removed updateSettings import
+import { getSubscription, updateSubscription, deleteSubscription } from "./db.js"; 
 
 dotenv.config();
 
@@ -33,7 +34,7 @@ const razorpay = new Razorpay({
 
 const PRICES = { intent: 499, security: 499, summary: 299 };
 
-// --- NEW: INSTALLATION VERIFICATION ENDPOINT ---
+// --- INSTALLATION VERIFICATION ---
 app.get("/api/installation-status/:id", async (req, res) => {
   try {
     const appOctokit = new Octokit({
@@ -52,16 +53,6 @@ app.get("/api/installation-status/:id", async (req, res) => {
   } catch (error) {
     res.json({ valid: false });
   }
-});
-
-// --- SETTINGS ENDPOINTS ---
-
-app.post("/api/settings", (req, res) => {
-  const { installationId, settings } = req.body;
-  if (!installationId || !settings) return res.status(400).send("Missing data");
-  
-  updateSettings(installationId, settings);
-  res.json({ status: "success", settings });
 });
 
 // --- PAYMENT ENDPOINTS ---
@@ -124,8 +115,7 @@ function getInstallationOctokit(installationId) {
 }
 
 app.post("/webhook", async (req, res) => {
-  // 1. Log entry to verify traffic
-  console.log("🔔 Webhook received!");
+  console.log("🔔 Webhook received!"); 
 
   const signature = req.headers["x-hub-signature-256"];
   const hmac = crypto.createHmac("sha256", process.env.WEBHOOK_SECRET);
@@ -143,7 +133,7 @@ app.post("/webhook", async (req, res) => {
   // 1. Handle Uninstalls
   if (event === "installation" && action === "deleted") {
     const installationId = req.body.installation.id;
-    console.log(`❌ Installation ${installationId} deleted. Cleaning up DB.`);
+    console.log(`❌ Installation ${installationId} deleted.`);
     deleteSubscription(installationId);
     return res.sendStatus(200);
   }
@@ -155,17 +145,14 @@ app.post("/webhook", async (req, res) => {
       const installationId = req.body.installation.id;
       const [owner, repo] = req.body.repository.full_name.split("/");
 
-      console.log(`Processing PR #${pr.number} for ${owner}/${repo} (Install ID: ${installationId})`);
+      console.log(`Processing PR #${pr.number} for ${owner}/${repo}`);
 
-      // This will now get the Hackathon Default if DB is empty
       const subscription = getSubscription(installationId);
       const activeFeatures = subscription.features;
-      const authorityMode = subscription.settings?.authorityMode || "gatekeeper";
 
-      console.log(`Subscription active features:`, activeFeatures);
-      console.log(`Authority Mode: ${authorityMode}`);
+      console.log(`Features: ${activeFeatures}`);
 
-      if (activeFeatures.length === 0) {
+      if (!activeFeatures || activeFeatures.length === 0) {
         console.log("⚠️ No active subscription. Skipping analysis.");
         return res.sendStatus(200);
       }
@@ -173,7 +160,6 @@ app.post("/webhook", async (req, res) => {
       const octokit = getInstallationOctokit(installationId);
       
       // Post "Pending" status
-      console.log("Posting 'Pending' status to GitHub...");
       await octokit.checks.create({
         owner,
         repo,
@@ -182,17 +168,15 @@ app.post("/webhook", async (req, res) => {
         status: "in_progress",
         output: {
           title: "Analyzing...",
-          summary: "FeaturePulse is checking product intent and security."
+          summary: "FeaturePulse is checking product intent, security, and redundancy."
         }
       });
 
-      console.log("Fetching intent and changes...");
       const intentRules = await fetchIntentRules(octokit, owner, repo);
       const prChanges = await fetchPRChanges(octokit, owner, repo, pr.number);
 
       let redundancyResult = [];
       try {
-        console.log("Checking redundancy...");
         const existingFiles = await fetchRepoStructure(octokit, owner, repo, pr.base.ref);
         redundancyResult = analyzeRedundancy(prChanges, existingFiles);
       } catch (err) {
@@ -201,11 +185,9 @@ app.post("/webhook", async (req, res) => {
 
       let securityResult = { riskLevel: "UNKNOWN", sensitiveFiles: [], vulnerabilities: [] };
       if (activeFeatures.includes('security')) {
-        console.log("Analyzing security...");
         securityResult = await analyzeSecurity(prChanges);
       }
 
-      console.log("Calling AI Analysis...");
       const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
       let aiResult = await analyzeWithAI(
           intentRules, 
@@ -214,26 +196,11 @@ app.post("/webhook", async (req, res) => {
           securityResult, 
           redundancyResult
       );
-      
-      console.log("AI Result:", JSON.stringify(aiResult, null, 2));
 
-      // --- MERGE AUTHORITY ENFORCEMENT ---
-      let conclusion = "success"; // Default to passing
-      let decisionDisplay = aiResult.decision;
+      // --- STANDARD DECISION LOGIC (No Authority Overrides) ---
+      let conclusion = aiResult.decision === "BLOCK" ? "failure" : "success";
 
-      if (aiResult.decision === "BLOCK") {
-        if (authorityMode === "gatekeeper") {
-          // Gatekeeper: BLOCK means FAIL check (red X)
-          conclusion = "failure";
-        } else if (authorityMode === "advisory") {
-          // Advisory: BLOCK means WARN (green check, but warning text)
-          conclusion = "success"; // Or 'neutral'
-          decisionDisplay = "WARN (Advisory Override)";
-          aiResult.summary = `**⚠️ [ADVISORY MODE]** FeaturePulse recommends **BLOCK**, but merge is allowed in Advisory mode.\n\n${aiResult.summary}`;
-        }
-      } 
-
-      console.log(`Final Decision: ${decisionDisplay} (Conclusion: ${conclusion})`);
+      console.log(`Final Decision: ${aiResult.decision} (Conclusion: ${conclusion})`);
 
       await octokit.checks.create({
         owner,
@@ -243,7 +210,7 @@ app.post("/webhook", async (req, res) => {
         status: "completed",
         conclusion,
         output: {
-          title: `Decision: ${decisionDisplay}`,
+          title: `Decision: ${aiResult.decision}`,
           summary: aiResult.summary,
           text: "See PR comment for details."
         }
@@ -253,18 +220,17 @@ app.post("/webhook", async (req, res) => {
         owner,
         repo,
         issue_number: pr.number,
-        body: `## 🤖 FeaturePulse Analysis\n\n**Authority Mode:** ${authorityMode.toUpperCase()}\n\n${aiResult.summary}`
+        body: `## 🤖 FeaturePulse Analysis\n\n${aiResult.summary}`
       });
-      
-      console.log("✅ Analysis complete and posted.");
 
     } catch (err) {
-      console.error("❌ Webhook Error:", err);
+      console.error("Webhook Error:", err);
     }
   }
   res.sendStatus(200);
 });
 
-app.listen(3000, () => {
-  console.log("🚀 Server running on port 3000");
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
