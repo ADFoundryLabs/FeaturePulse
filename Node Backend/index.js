@@ -10,7 +10,7 @@ import { fetchIntentRules, fetchPRChanges, fetchRepoStructure } from "./github.j
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
 import { analyzeRedundancy } from "./redundancy.js";
-import { getSubscription, updateSubscription, deleteSubscription } from "./db.js"; 
+import { getSubscription, updateSubscription, deleteSubscription, updateSettings } from "./db.js"; 
 
 dotenv.config();
 
@@ -44,16 +44,24 @@ app.get("/api/installation-status/:id", async (req, res) => {
       },
     });
 
-    // Attempt to fetch the installation. If it throws 404, it's uninstalled.
     await appOctokit.apps.getInstallation({
       installation_id: req.params.id,
     });
 
     res.json({ valid: true });
   } catch (error) {
-    // If error is 404, the installation is definitely gone
     res.json({ valid: false });
   }
+});
+
+// --- SETTINGS ENDPOINTS ---
+
+app.post("/api/settings", (req, res) => {
+  const { installationId, settings } = req.body;
+  if (!installationId || !settings) return res.status(400).send("Missing data");
+  
+  updateSettings(installationId, settings);
+  res.json({ status: "success", settings });
 });
 
 // --- PAYMENT ENDPOINTS ---
@@ -142,6 +150,7 @@ app.post("/webhook", async (req, res) => {
 
       const subscription = getSubscription(installationId);
       const activeFeatures = subscription.features;
+      const authorityMode = subscription.settings?.authorityMode || "gatekeeper";
 
       console.log(`Checking Subscription for ${installationId}:`, activeFeatures);
 
@@ -151,6 +160,20 @@ app.post("/webhook", async (req, res) => {
       }
 
       const octokit = getInstallationOctokit(installationId);
+      
+      // Post "Pending" status
+      await octokit.checks.create({
+        owner,
+        repo,
+        name: "FeaturePulse",
+        head_sha: pr.head.sha,
+        status: "in_progress",
+        output: {
+          title: "Analyzing...",
+          summary: "FeaturePulse is checking product intent and security."
+        }
+      });
+
       const intentRules = await fetchIntentRules(octokit, owner, repo);
       const prChanges = await fetchPRChanges(octokit, owner, repo, pr.number);
 
@@ -168,7 +191,7 @@ app.post("/webhook", async (req, res) => {
       }
 
       const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
-      const aiResult = await analyzeWithAI(
+      let aiResult = await analyzeWithAI(
           intentRules, 
           aiInput, 
           prChanges, 
@@ -176,7 +199,22 @@ app.post("/webhook", async (req, res) => {
           redundancyResult
       );
 
-      let conclusion = aiResult.decision === "BLOCK" ? "failure" : "success";
+      // --- MERGE AUTHORITY ENFORCEMENT ---
+      let conclusion = "success"; // Default to passing
+      let decisionDisplay = aiResult.decision;
+
+      if (aiResult.decision === "BLOCK") {
+        if (authorityMode === "gatekeeper") {
+          // Gatekeeper: BLOCK means FAIL check (red X)
+          conclusion = "failure";
+        } else if (authorityMode === "advisory") {
+          // Advisory: BLOCK means WARN (green check, but warning text)
+          conclusion = "success"; // Or 'neutral'
+          decisionDisplay = "WARN (Advisory Override)";
+          aiResult.summary = `**⚠️ [ADVISORY MODE]** FeaturePulse recommends **BLOCK**, but merge is allowed in Advisory mode.\n\n${aiResult.summary}`;
+        }
+      } 
+      // Auto-approve logic is implicit: 'success' allows merge.
 
       await octokit.checks.create({
         owner,
@@ -186,7 +224,7 @@ app.post("/webhook", async (req, res) => {
         status: "completed",
         conclusion,
         output: {
-          title: `Decision: ${aiResult.decision}`,
+          title: `Decision: ${decisionDisplay}`,
           summary: aiResult.summary,
           text: "See PR comment for details."
         }
@@ -196,7 +234,7 @@ app.post("/webhook", async (req, res) => {
         owner,
         repo,
         issue_number: pr.number,
-        body: `## 🤖 FeaturePulse Analysis\n\n${aiResult.summary}`
+        body: `## 🤖 FeaturePulse Analysis\n\n**Authority Mode:** ${authorityMode.toUpperCase()}\n\n${aiResult.summary}`
       });
 
     } catch (err) {
