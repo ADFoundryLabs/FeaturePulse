@@ -5,6 +5,7 @@ import cors from "cors";
 import Razorpay from "razorpay";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
+
 import { fetchIntentRules, fetchPRChanges, fetchRepoStructure } from "./github.js";
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
@@ -149,12 +150,8 @@ app.post("/webhook", async (req, res) => {
 
       const subscription = getSubscription(installationId);
       
-      // ==========================================================
-      // START OF FIX: Force enable features for testing
-      // ==========================================================
       const activeFeatures = ["intent", "security", "summary"]; 
-      // const activeFeatures = subscription.features; // <--- Original line commented out
-      // ==========================================================
+      // const activeFeatures = subscription.features; 
 
       const authorityMode = subscription.settings?.authorityMode || "gatekeeper";
 
@@ -167,7 +164,6 @@ app.post("/webhook", async (req, res) => {
 
       const octokit = getInstallationOctokit(installationId);
       
-      // Post "Pending" status
       await octokit.checks.create({
         owner,
         repo,
@@ -206,22 +202,24 @@ app.post("/webhook", async (req, res) => {
       );
 
       // --- MERGE AUTHORITY ENFORCEMENT ---
-      let conclusion = "success"; // Default to passing
+      let conclusion = "success"; 
       let decisionDisplay = aiResult.decision;
+
+      // Extract the correct summary from the new "summaries" object
+      const standardSummary = aiResult.summaries?.standard || "No summary available.";
 
       if (aiResult.decision === "BLOCK") {
         if (authorityMode === "gatekeeper") {
-          // Gatekeeper: BLOCK means FAIL check (red X)
           conclusion = "failure";
         } else if (authorityMode === "advisory") {
-          // Advisory: BLOCK means WARN (green check, but warning text)
-          conclusion = "success"; // Or 'neutral'
+          conclusion = "success"; 
           decisionDisplay = "WARN (Advisory Override)";
-          aiResult.summary = `**⚠️ [ADVISORY MODE]** FeaturePulse recommends **BLOCK**, but merge is allowed in Advisory mode.\n\n${aiResult.summary}`;
+          // Append warning to the summary
+          aiResult.summaries.standard = `**⚠️ [ADVISORY MODE]** FeaturePulse recommends **BLOCK**, but merge is allowed in Advisory mode.\n\n${standardSummary}`;
         }
       } 
-      // Auto-approve logic is implicit: 'success' allows merge.
 
+      // 1. UPDATE CHECK RUN (Use Standard Summary)
       await octokit.checks.create({
         owner,
         repo,
@@ -231,11 +229,12 @@ app.post("/webhook", async (req, res) => {
         conclusion,
         output: {
           title: `Decision: ${decisionDisplay}`,
-          summary: aiResult.summary,
-          text: "See PR comment for details."
+          summary: aiResult.summaries?.standard || "Analysis Completed.",
+          text: "See PR comment for full details."
         }
       });
 
+      // 2. CREATE PR COMMENT (Show ALL 3 Summaries)
       const commentBody = `## 🤖 FeaturePulse Analysis
 **Authority Mode:** ${authorityMode.toUpperCase()}
 **Decision:** ${decisionDisplay}
@@ -254,7 +253,7 @@ ${aiResult.summaries?.developer || "Not available"}
         owner,
         repo,
         issue_number: pr.number,
-        body: `## 🤖 FeaturePulse Analysis\n\n**Authority Mode:** ${authorityMode.toUpperCase()}\n\n${aiResult.summary}`
+        body: commentBody
       });
 
     } catch (err) {
