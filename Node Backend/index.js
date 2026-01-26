@@ -149,7 +149,14 @@ app.post("/webhook", async (req, res) => {
       const [owner, repo] = req.body.repository.full_name.split("/");
 
       const subscription = getSubscription(installationId);
-      const activeFeatures = subscription.features;
+      
+      // ==========================================================
+      // START OF FIX: Force enable features for testing
+      // ==========================================================
+      const activeFeatures = ["intent", "security", "summary"]; 
+      // const activeFeatures = subscription.features; // <--- Original line commented out
+      // ==========================================================
+
       const authorityMode = subscription.settings?.authorityMode || "gatekeeper";
 
       console.log(`Checking Subscription for ${installationId}:`, activeFeatures);
