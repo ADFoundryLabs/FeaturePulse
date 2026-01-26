@@ -12,19 +12,29 @@ function saveDB(data) {
 
 export function getSubscription(installationId) {
   const db = loadDB();
-  return db[installationId] || { features: [] };
+  
+  // 🚨 HACKATHON MODE (Stability Fix): 
+  // If the DB is empty (Railway wiped it), return default active features.
+  if (!db[installationId]) {
+    console.log(`⚠️ No DB record for ${installationId}. Using Default Subscription.`);
+    return { features: ['intent', 'security', 'summary'] };
+  }
+  
+  return db[installationId];
 }
 
 export function updateSubscription(installationId, features) {
   const db = loadDB();
-  db[installationId] = { features, updatedAt: new Date().toISOString() };
+  const current = db[installationId] || {};
+  
+  db[installationId] = { 
+    ...current,
+    features, 
+    updatedAt: new Date().toISOString() 
+  };
   saveDB(db);
 }
 
-/**
- * Removes a subscription from the database.
- * Used when the GitHub App is uninstalled.
- */
 export function deleteSubscription(installationId) {
   const db = loadDB();
   if (db[installationId]) {
