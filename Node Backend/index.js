@@ -124,14 +124,21 @@ function getInstallationOctokit(installationId) {
 }
 
 app.post("/webhook", async (req, res) => {
+  // 1. Log entry to verify traffic
+  console.log("🔔 Webhook received!");
+
   const signature = req.headers["x-hub-signature-256"];
   const hmac = crypto.createHmac("sha256", process.env.WEBHOOK_SECRET);
   const digest = "sha256=" + hmac.update(req.rawBody).digest("hex");
 
-  if (signature !== digest) return res.status(401).send("Invalid signature");
+  if (signature !== digest) {
+    console.error("❌ Invalid Signature");
+    return res.status(401).send("Invalid signature");
+  }
 
   const event = req.headers["x-github-event"];
   const action = req.body.action;
+  console.log(`Event: ${event}, Action: ${action}`);
 
   // 1. Handle Uninstalls
   if (event === "installation" && action === "deleted") {
@@ -148,11 +155,14 @@ app.post("/webhook", async (req, res) => {
       const installationId = req.body.installation.id;
       const [owner, repo] = req.body.repository.full_name.split("/");
 
+      console.log(`Processing PR #${pr.number} for ${owner}/${repo} (Install ID: ${installationId})`);
+
       const subscription = getSubscription(installationId);
       const activeFeatures = subscription.features;
       const authorityMode = subscription.settings?.authorityMode || "gatekeeper";
 
-      console.log(`Checking Subscription for ${installationId}:`, activeFeatures);
+      console.log(`Subscription active features:`, activeFeatures);
+      console.log(`Authority Mode: ${authorityMode}`);
 
       if (activeFeatures.length === 0) {
         console.log("⚠️ No active subscription. Skipping analysis.");
@@ -162,6 +172,7 @@ app.post("/webhook", async (req, res) => {
       const octokit = getInstallationOctokit(installationId);
       
       // Post "Pending" status
+      console.log("Posting 'Pending' status to GitHub...");
       await octokit.checks.create({
         owner,
         repo,
@@ -174,11 +185,13 @@ app.post("/webhook", async (req, res) => {
         }
       });
 
+      console.log("Fetching intent and changes...");
       const intentRules = await fetchIntentRules(octokit, owner, repo);
       const prChanges = await fetchPRChanges(octokit, owner, repo, pr.number);
 
       let redundancyResult = [];
       try {
+        console.log("Checking redundancy...");
         const existingFiles = await fetchRepoStructure(octokit, owner, repo, pr.base.ref);
         redundancyResult = analyzeRedundancy(prChanges, existingFiles);
       } catch (err) {
@@ -187,9 +200,11 @@ app.post("/webhook", async (req, res) => {
 
       let securityResult = { riskLevel: "UNKNOWN", sensitiveFiles: [], vulnerabilities: [] };
       if (activeFeatures.includes('security')) {
+        console.log("Analyzing security...");
         securityResult = await analyzeSecurity(prChanges);
       }
 
+      console.log("Calling AI Analysis...");
       const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
       let aiResult = await analyzeWithAI(
           intentRules, 
@@ -198,6 +213,8 @@ app.post("/webhook", async (req, res) => {
           securityResult, 
           redundancyResult
       );
+      
+      console.log("AI Result:", JSON.stringify(aiResult, null, 2));
 
       // --- MERGE AUTHORITY ENFORCEMENT ---
       let conclusion = "success"; // Default to passing
@@ -215,6 +232,8 @@ app.post("/webhook", async (req, res) => {
         }
       } 
       // Auto-approve logic is implicit: 'success' allows merge.
+
+      console.log(`Final Decision: ${decisionDisplay} (Conclusion: ${conclusion})`);
 
       await octokit.checks.create({
         owner,
@@ -236,9 +255,11 @@ app.post("/webhook", async (req, res) => {
         issue_number: pr.number,
         body: `## 🤖 FeaturePulse Analysis\n\n**Authority Mode:** ${authorityMode.toUpperCase()}\n\n${aiResult.summary}`
       });
+      
+      console.log("✅ Analysis complete and posted.");
 
     } catch (err) {
-      console.error("Webhook Error:", err);
+      console.error("❌ Webhook Error:", err);
     }
   }
   res.sendStatus(200);
