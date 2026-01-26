@@ -50,52 +50,61 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
   ${redundancyResult && redundancyResult.length > 0 ? redundancyResult.join("\n- ") : "No code redundancy detected."}
   `;
 
-  // --- ENHANCED PRD-STYLE PROMPT ---
+  // --- STRICT PRD PROMPT ---
   const prompt = `
-  You are 'FeaturePulse', a Senior Product Quality & Security Analyst.
+  You are 'FeaturePulse', a Product Compliance & Security Bot.
   
-  YOUR MISSION:
-  Conduct a rigorous review of the [CODE CHANGES] against the [PROJECT INTENT (PRD)].
-  Generate a structured compliance report in JSON format.
+  YOUR GOAL:
+  Compare the [CODE CHANGES] against the [PRD / INTENT RULES].
+  You MUST generate a structured report.
   
   ---
-  [1. PROJECT INTENT (PRD / REQUIREMENTS)]
+  [1. PRD / INTENT RULES]
   ${intentRules}
   
-  [2. AUTOMATED SECURITY REPORT]
+  [2. SECURITY REPORT]
   ${securityContext}
 
-  [3. CODE REDUNDANCY REPORT]
+  [3. REDUNDANCY REPORT]
   ${redundancyContext}
 
-  [4. PULL REQUEST METADATA]
+  [4. PR METADATA]
   Title: ${prDetails.title}
   Description: ${prDetails.body || "No description provided."}
   
-  [5. CODE IMPLEMENTATION (DIFF)]
-  ${fileChanges.substring(0, 12000)} ... (truncated if too long)
+  [5. CODE DIFF]
+  ${fileChanges.substring(0, 15000)} ... (truncated)
   ---
 
-  [DECISION LOGIC MATRIX]
-  - **BLOCK**: If Security is HIGH/CRITICAL OR Intent Alignment < 50%.
-  - **WARN**: If Redundancy found OR Security is MEDIUM OR Intent Alignment < 80%.
-  - **APPROVE**: If Intent Alignment > 80% AND Security LOW AND No Redundancy.
+  [DECISION LOGIC]
+  1. BLOCK: If Security is HIGH/CRITICAL OR Intent Match < 50%.
+  2. WARN: If Intent Match < 80% OR Redundancy found.
+  3. APPROVE: If Intent Match > 80% AND Security LOW.
 
-  RESPONSE FORMAT (Strict JSON Only):
+  RESPONSE FORMAT (JSON ONLY):
   {
     "decision": "APPROVE" | "WARN" | "BLOCK",
-    "completion_score": "Percentage (0-100%)",
-    "prd_analysis": {
-      "fully_implemented": ["List of intent features clearly found in code"],
-      "missing_features": ["List of intent features NOT found"],
-      "out_of_scope": ["New features added that were NOT in the Intent/PRD"]
-    },
-    "risk_assessment": {
-      "security_level": "${securityResult.riskLevel}",
-      "concerns": ["List specific security or redundancy concerns"]
-    },
-    "summary": "A Markdown-formatted string. MUST be structured with these headers: '## 📋 PRD Compliance', '## 🛡️ Security & Quality', '## 💡 Recommendations'. Provide specific, actionable feedback."
+    "completion_score": "Percentage (e.g., '85%')",
+    "summary": "MARKDOWN STRING containing the report below"
   }
+
+  For the 'summary' field, generate a Markdown string with EXACTLY this structure:
+
+  ### 📝 Executive Summary
+  (A 2-sentence summary of what this PR does and if it meets the PRD goals.)
+
+  ### 📋 PRD Compliance
+  * ✅ **Implemented:** (List features from the PRD that are present)
+  * ⚠️ **Missing/Incomplete:** (List features from the PRD that are missing)
+  * 🛑 **Out of Scope:** (List features added that were NOT in the PRD)
+
+  ### 🛡️ Security & Quality
+  * **Security Risk:** ${securityResult.riskLevel}
+  * **Vulnerabilities:** (Summarize findings from Security Report)
+  * **Redundancy:** (Summarize findings from Redundancy Report)
+
+  ### 💡 Recommendations
+  (Actionable advice for the developer)
   `;
 
   try {
@@ -113,7 +122,7 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
       const completion = await openAI.chat.completions.create({
         model: "google/gemini-2.0-flash-001",
         messages: [
-          { role: "system", content: "You are a specialized JSON-outputting API. Do not output markdown blocks." },
+          { role: "system", content: "You are a JSON-only API. Output strictly valid JSON." },
           { role: "user", content: prompt }
         ],
       });
@@ -127,9 +136,10 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
     // Parse and Return
     const parsed = JSON.parse(jsonStr);
     
-    // Ensure back-compat with index.js if the AI changes structure slightly
-    if (!parsed.completed_features) parsed.completed_features = parsed.prd_analysis?.fully_implemented || [];
-    if (!parsed.pending_features) parsed.pending_features = parsed.prd_analysis?.missing_features || [];
+    // Fallback: If AI fails to generate a summary, create a basic one
+    if (!parsed.summary) {
+      parsed.summary = "### ⚠️ Summary Not Generated\nThe AI analyzed the code but failed to generate the text report.";
+    }
 
     return parsed;
 
@@ -138,9 +148,7 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
     return {
       completion_score: "0%",
       decision: "WARN",
-      summary: "⚠️ **Analysis Failed**: I encountered an error connecting to the AI provider. Please check the server logs.",
-      completed_features: [],
-      pending_features: ["Analysis Error"]
+      summary: `### ⚠️ Analysis Failed\n\n**Error:** ${error.message}\n\nPlease check your server logs and API keys.`
     };
   }
 }
