@@ -157,6 +157,7 @@ app.post("/webhook", async (req, res) => {
 
       console.log(`Processing PR #${pr.number} for ${owner}/${repo} (Install ID: ${installationId})`);
 
+      // This will now get the Hackathon Default if DB is empty
       const subscription = getSubscription(installationId);
       const activeFeatures = subscription.features;
       const authorityMode = subscription.settings?.authorityMode || "gatekeeper";
@@ -231,7 +232,6 @@ app.post("/webhook", async (req, res) => {
           aiResult.summary = `**⚠️ [ADVISORY MODE]** FeaturePulse recommends **BLOCK**, but merge is allowed in Advisory mode.\n\n${aiResult.summary}`;
         }
       } 
-      // Auto-approve logic is implicit: 'success' allows merge.
 
       console.log(`Final Decision: ${decisionDisplay} (Conclusion: ${conclusion})`);
 
