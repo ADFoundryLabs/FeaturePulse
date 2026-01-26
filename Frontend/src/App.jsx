@@ -1,128 +1,97 @@
 import { useState, useEffect } from 'react'
-import './App.css'
-import IntentRules from './components/IntentRules'
+import Header from './components/Header'
 import Dashboard from './components/Dashboard'
 import Pricing from './components/Pricing'
-import Header from './components/Header'
-import { API_BASE_URL } from './services/api' // Ensure this export exists in api.js
+import IntentRules from './components/IntentRules'
+import './App.css'
 
 function App() {
-  const [activeTab, setActiveTab] = useState('dashboard')
   const [installationId, setInstallationId] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('dashboard')
 
   useEffect(() => {
-    const checkInstallation = async () => {
-      const queryParams = new URLSearchParams(window.location.search)
-      const urlId = queryParams.get('installation_id')
+    const queryParams = new URLSearchParams(window.location.search);
+    const urlId = queryParams.get('installation_id');
 
-      // Case 1: Fresh Install via URL
-      if (urlId) {
-        localStorage.setItem('fp_installation_id', urlId)
-        setInstallationId(urlId)
-        window.history.replaceState({}, document.title, window.location.pathname)
-        setActiveTab('pricing')
-        setLoading(false)
-        return
-      }
-
-      // Case 2: Returning User - VERIFY ID WITH BACKEND
-      const storedId = localStorage.getItem('fp_installation_id')
+    // Case 1: New Installation Redirect (Always valid initially)
+    if (urlId) {
+      localStorage.setItem('fp_installation_id', urlId);
+      setInstallationId(urlId);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setActiveTab('pricing');
+    } 
+    // Case 2: Returning User (Check if ID is still valid)
+    else {
+      const storedId = localStorage.getItem('fp_installation_id');
       if (storedId) {
-        try {
-          // You must have the /api/installation-status endpoint in backend index.js
-          const res = await fetch(`${API_BASE_URL}/api/installation-status/${storedId}`)
-          const data = await res.json()
-
-          if (data.valid) {
-            setInstallationId(storedId)
-          } else {
-            console.warn("⚠️ Installation invalid or uninstalled. Clearing session.")
-            localStorage.removeItem('fp_installation_id')
-            setInstallationId(null)
-          }
-        } catch (error) {
-          console.error("Failed to verify installation:", error)
-          // If backend is down, decide whether to keep them logged in or not.
-          // For safety, we keep them logged in but you might want to force logout.
-          setInstallationId(storedId)
-        }
+        // Verify with backend
+        fetch(`http://localhost:3000/api/installation-status/${storedId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.valid) {
+              setInstallationId(storedId);
+            } else {
+              console.log("⚠️ Installation not found (Uninstalled). Clearing session.");
+              localStorage.removeItem('fp_installation_id');
+              setInstallationId(null);
+            }
+          })
+          .catch(err => {
+            console.error("Verification failed:", err);
+            // Fallback: If backend is down, we might want to keep the session 
+            // or clear it. Here we keep it to prevent accidental logouts.
+            setInstallationId(storedId); 
+          });
       }
-      setLoading(false)
     }
-
-    checkInstallation()
   }, [])
-
-  if (loading) {
-    return <div className="loading-screen">Loading FeaturePulse...</div>
-  }
 
   return (
     <div className="app">
-      <Header />
+      <Header 
+        installationId={installationId} 
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+      />
       
-      {/* CONDITIONAL RENDERING: Landing Page vs App Content */}
-      {!installationId ? (
-        <div className="landing-page">
-          <div className="hero-content">
-            <h1>Automated Guardrails for Your Code</h1>
-            <p>Connect FeaturePulse to your GitHub repository to enforce product intent and security rules.</p>
-            <a 
-              href="https://github.com/apps/featurepulse-merge" 
-              className="install-button"
-            >
-              Install on GitHub
-            </a>
-          </div>
-          <div className="features-preview">
-            <div className="feature-item">🤖 AI Intent Analysis</div>
-            <div className="feature-item">🛡️ Security Scanning</div>
-            <div className="feature-item">⚡ Redundancy Checks</div>
-          </div>
-        </div>
-      ) : (
-        <div className="app-container">
-          <nav className="sidebar">
-            <button 
-              className={activeTab === 'dashboard' ? 'active' : ''}
-              onClick={() => setActiveTab('dashboard')}
-            >
-              📊 Dashboard
-            </button>
-            <button 
-              className={activeTab === 'pricing' ? 'active' : ''}
-              onClick={() => setActiveTab('pricing')}
-            >
-              💳 Pricing
-            </button>
-            <button 
-              className={activeTab === 'rules' ? 'active' : ''}
-              onClick={() => setActiveTab('rules')}
-            >
-              📋 Intent Rules
-            </button>
-            
-            <div className="sidebar-footer">
-               <button 
-                 className="logout-button"
-                 onClick={() => {
-                   localStorage.removeItem('fp_installation_id');
-                   setInstallationId(null);
-                 }}
-               >
-                 Disconnect
-               </button>
+      <main className="main-content">
+        {!installationId ? (
+          <div className="landing-page">
+            <div className="hero">
+              <h1>Automated Gatekeeper for Your Pull Requests</h1>
+              <p>Enforce product intent and security rules before code merges.</p>
+              
+              <div className="install-action">
+                {/* Replace with your actual GitHub App URL */}
+                <a href="https://github.com/apps/featurepulse-bot/installations/new" className="install-button primary">
+                  Install FeaturePulse on GitHub
+                </a>
+              </div>
             </div>
-          </nav>
-
-          <main className="main-content">
+            
+            <div className="features-grid">
+              <div className="feature-card">
+                <h3>🤖 AI Intent Analysis</h3>
+                <p>Ensures PRs align with your product goals (intent.md).</p>
+              </div>
+              <div className="feature-card">
+                <h3>🛡️ Security Guardrails</h3>
+                <p>Auto-detects vulnerabilities and sensitive file changes.</p>
+              </div>
+              <div className="feature-card">
+                <h3>⚡ Redundancy Checks</h3>
+                <p>Prevents duplicate code and feature bloat.</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
             {activeTab === 'dashboard' && <Dashboard installationId={installationId} />}
-            {activeTab === 'rules' && <IntentRules installationId={installationId} />}
             {activeTab === 'pricing' && <Pricing installationId={installationId} />}
-          </main>
-        </div>
-      )}
+            {activeTab === 'rules' && <IntentRules installationId={installationId} />}
+          </>
+        )}
+      </main>
     </div>
   )
 }
