@@ -162,3 +162,9 @@
   padding: 4px 8px;
   border-radius: 6px;
 }
+.decision-badge {
+  margin: 1rem
+}
+.score-badge {
+  margin-bottom: 5px;
+}
