@@ -31,7 +31,6 @@
   letter-spacing: -0.03em;
   
   
-  /* Glow effect */
   filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.2));
   cursor: default;
 }
@@ -40,9 +39,6 @@
   font-size: 2rem;
 }
 
-.logo:hover .logo-icon {
-  transform: rotate(15deg) scale(1.1);
-}
 
 /* Tagline */
 .tagline {

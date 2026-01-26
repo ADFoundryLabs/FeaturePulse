@@ -162,12 +162,8 @@
   padding: 4px 8px;
   border-radius: 6px;
 }
-.decision-badge {
-  margin: 1rem
-}
-.score-badge {
-  margin-bottom: 5px;
-}
+
+/* ... Keep existing Dashboard styles ... */
 
 /* NEW Score Display Styles */
 .score-display {
@@ -194,7 +190,12 @@
   overflow: hidden;
   position: relative;
 }
-
+.score-badge{
+  margin-bottom: 1rem;
+}
+.decision-badge{
+  margin-right: 1rem;
+}
 .score-fill {
   height: 100%;
   border-radius: 10px;
