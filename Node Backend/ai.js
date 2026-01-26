@@ -1,71 +1,149 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import dotenv from "dotenv";
+import OpenAI from "openai";
+import dotenv from "dotenv"; 
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Logic: Use Gemini if key is present. If not, try OpenRouter.
+const geminiKey = process.env.GEMINI_API_KEY;
+const openRouterKey = process.env.OPENROUTER_API_KEY;
+
+const useGemini = geminiKey && geminiKey.trim().length > 0;
+const useOpenRouter = !useGemini && openRouterKey && openRouterKey.trim().length > 0;
+
+let genAI;
+let openAI;
+
+if (useGemini) {
+  console.log("🔹 Using Google Gemini API");
+  genAI = new GoogleGenerativeAI(geminiKey);
+} else if (useOpenRouter) {
+  console.log("🔹 Using OpenRouter API");
+  openAI = new OpenAI({
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey: openRouterKey,
+    defaultHeaders: {
+      "HTTP-Referer": "https://github.com/AyushJha2008/FeaturePulse",
+      "X-Title": "FeaturePulse",
+    },
+  });
+} else {
+  console.warn("⚠️ No valid AI API Key found (Gemini or OpenRouter).");
+}
 
 /**
- * Analyze PR intent alignment using Gemini
+ * Orchestrate AI analysis with Security and Redundancy Context
  */
-export async function analyzeWithAI(intentRules, prDetails, fileChanges) {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+export async function analyzeWithAI(intentRules, prDetails, fileChanges, securityResult, redundancyResult) {
+  
+  // Format security findings
+  const securityContext = `
+  [SECURITY SCAN RESULTS]
+  Risk Level: ${securityResult.riskLevel}
+  Sensitive Files Touched: ${securityResult.sensitiveFiles.length > 0 ? securityResult.sensitiveFiles.join(", ") : "None"}
+  Vulnerabilities Found: ${JSON.stringify(securityResult.vulnerabilities)}
+  `;
+
+  // Format redundancy findings
+  const redundancyContext = `
+  [REDUNDANCY CHECKS]
+  ${redundancyResult && redundancyResult.length > 0 ? redundancyResult.join("\n- ") : "No obvious redundancy detected."}
+  `;
 
   const prompt = `
-You are FeaturePulse, an AI intent analysis system.
+  You are a Senior Project Manager Bot named FeaturePulse.
+  
+  CORE INSTRUCTIONS:
+  1. Read the [PROJECT INTENT RULES], [SECURITY SCAN RESULTS], and [REDUNDANCY CHECKS].
+  2. Analyze the [FILE CHANGES] to see if they align with intent.
+  3. Combine factors to form a FINAL DECISION based on this Logic Matrix:
+  
+  [DECISION LOGIC MATRIX]
+  - IF Security Risk = "HIGH" or "CRITICAL" -> Decision MUST be "BLOCK" (Reason: Security Risk)
+  - IF Intent Match < 50% -> Decision MUST be "BLOCK" (Reason: Misalignment)
+  - IF [REDUNDANCY CHECKS] detected issues -> Decision should be "WARN" (unless Security/Intent dictates BLOCK)
+  - IF Security Risk = "MEDIUM" -> Decision is "WARN"
+  - IF Intent Match >= 80% AND Security = "LOW" AND No Redundancy -> Decision is "APPROVE"
+  - ELSE -> Decision is "WARN"
 
-PROJECT INTENT RULES:
-${intentRules}
+  [SUMMARIZATION INSTRUCTIONS]
+  Generate 3 specific types of summaries for this Pull Request:
+  1. "simple_summary": For non-technical stakeholders. Use easy language, analogies, and focus on the "what" and "why" (business value).
+  2. "developer_summary": For engineers. Use technical terminology, mention specific files/functions modified, architectural impact, and implementation details.
+  3. "standard_summary": A balanced professional summary explaining the decision and key findings (Status Quo).
 
-PULL REQUEST CONTEXT:
-Title: ${prDetails.title}
-Description: ${prDetails.body || "No description provided."}
+  ---
+  [PROJECT INTENT RULES]
+  ${intentRules}
+  
+  ${securityContext}
 
-FILE CHANGES (TRUNCATED):
-${fileChanges.substring(0, 8000)}
+  ${redundancyContext}
+  ---
 
-TASK:
-1. Identify the primary intent of this pull request.
-2. Estimate how well this PR aligns with the intent rules.
-3. Provide a confidence score from 0 to 100.
-4. Explain your reasoning briefly.
+  [PR CONTEXT]
+  Title: ${prDetails.title}
+  Description: ${prDetails.body || "No description provided."}
+  
+  [FILE CHANGES]
+  ${fileChanges.substring(0, 8000)} ... (truncated)
 
-RESPOND ONLY IN VALID JSON:
-{
-  "intent": "Short intent label",
-  "confidence": 0-100,
-  "completed_features": ["List of intent rules satisfied"],
-  "pending_features": ["List of intent rules not satisfied"],
-  "summary": "Short explanation for the developer"
-}
-`;
+  RESPONSE FORMAT (JSON ONLY):
+  {
+    "completion_score": "Percentage (0-100%)",
+    "security_risk": "${securityResult.riskLevel}",
+    "redundancy_detected": ${redundancyResult && redundancyResult.length > 0},
+    "completed_features": ["List of intent items FULLY implemented"],
+    "pending_features": ["List of intent items MISSING"],
+    "decision": "APPROVE" | "WARN" | "BLOCK",
+    "summaries": {
+        "simple": "Simple language summary for non-techies...",
+        "developer": "Technical summary for devs...",
+        "standard": "Standard professional summary..."
+    }
+  }
+  `;
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    let jsonStr = "";
 
-    // Remove markdown fences if present
-    const cleanText = text.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(cleanText);
+    if (useGemini && genAI) {
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      jsonStr = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    } 
+    else if (useOpenRouter && openAI) {
+      const completion = await openAI.chat.completions.create({
+        model: "google/gemini-2.0-flash-001",
+        messages: [
+          { role: "system", content: "You are a helpful AI that strictly responds in JSON." },
+          { role: "user", content: prompt }
+        ],
+      });
+      const text = completion.choices[0].message.content;
+      jsonStr = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    } 
+    else {
+      throw new Error("No AI provider configured.");
+    }
 
-    // Hard safety guards
-    return {
-      intent: parsed.intent || "Unknown",
-      confidence: Number(parsed.confidence) || 0,
-      completed_features: parsed.completed_features || [],
-      pending_features: parsed.pending_features || [],
-      summary: parsed.summary || "No summary provided."
-    };
+    return JSON.parse(jsonStr);
+
   } catch (error) {
-    console.error("❌ Gemini AI Error:", error.message);
-
+    console.error("AI Error:", error);
     return {
-      intent: "Unknown",
-      confidence: 0,
+      completion_score: "0%",
+      security_risk: "UNKNOWN",
       completed_features: [],
-      pending_features: ["AI analysis failed"],
-      summary: "AI analysis could not be completed."
+      pending_features: ["Analysis Failed"],
+      decision: "WARN",
+      summaries: {
+        simple: "Analysis failed.",
+        developer: "Analysis failed due to an error.",
+        standard: "I encountered an error analyzing your code. Please check your API keys."
+      }
     };
   }
 }

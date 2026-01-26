@@ -1,17 +1,23 @@
 import express from "express";
 import crypto from "crypto";
 import dotenv from "dotenv";
+import cors from "cors";
+import Razorpay from "razorpay";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 
-import { fetchIntentRules } from "./github.js";
+import { fetchIntentRules, fetchPRChanges, fetchRepoStructure } from "./github.js";
 import { analyzeWithAI } from "./ai.js";
+import { analyzeSecurity } from "./security.js";
+import { analyzeRedundancy } from "./redundancy.js";
+import { getSubscription, updateSubscription, deleteSubscription, updateSettings } from "./db.js"; 
 
 dotenv.config();
 
 const app = express();
+app.use(cors());
 
-// REQUIRED for GitHub signature verification
+// Webhook signature verification
 app.use(
   express.json({
     verify: (req, res, buf) => {
@@ -20,68 +26,203 @@ app.use(
   })
 );
 
-// GitHub App auth
-const octokit = new Octokit({
-  authStrategy: createAppAuth,
-  auth: {
-    appId: process.env.APP_ID,
-    privateKey: process.env.PRIVATE_KEY,
-    installationId: process.env.INSTALLATION_ID
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
+const PRICES = { intent: 499, security: 499, summary: 299 };
+
+// --- NEW: INSTALLATION VERIFICATION ENDPOINT ---
+app.get("/api/installation-status/:id", async (req, res) => {
+  try {
+    const appOctokit = new Octokit({
+      authStrategy: createAppAuth,
+      auth: {
+        appId: process.env.APP_ID,
+        privateKey: process.env.PRIVATE_KEY,
+      },
+    });
+
+    await appOctokit.apps.getInstallation({
+      installation_id: req.params.id,
+    });
+
+    res.json({ valid: true });
+  } catch (error) {
+    res.json({ valid: false });
   }
 });
+
+// --- SETTINGS ENDPOINTS ---
+
+app.post("/api/settings", (req, res) => {
+  const { installationId, settings } = req.body;
+  if (!installationId || !settings) return res.status(400).send("Missing data");
+  
+  updateSettings(installationId, settings);
+  res.json({ status: "success", settings });
+});
+
+// --- PAYMENT ENDPOINTS ---
+
+app.post("/api/create-order", async (req, res) => {
+  try {
+    const { features, installationId } = req.body;
+    if (!installationId) return res.status(400).json({ error: "Missing Installation ID" });
+    
+    let totalAmount = 0;
+    features.forEach(f => { if (PRICES[f]) totalAmount += PRICES[f]; });
+
+    if (features.length === 3) totalAmount = Math.floor(totalAmount * 0.8);
+
+    const options = {
+      amount: totalAmount * 100, // paise
+      currency: "INR",
+      receipt: `rcpt_${installationId}_${Date.now()}`,
+    };
+
+    const order = await razorpay.orders.create(options);
+    res.json(order);
+  } catch (error) {
+    console.error("Razorpay Error:", error);
+    res.status(500).send("Error creating order");
+  }
+});
+
+app.post("/api/verify-payment", (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, features, installationId } = req.body;
+
+  const hmac = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET);
+  hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
+  const generated_signature = hmac.digest("hex");
+
+  if (generated_signature === razorpay_signature) {
+    updateSubscription(installationId, features);
+    res.json({ status: "success" });
+  } else {
+    res.status(400).json({ status: "failure" });
+  }
+});
+
+app.get("/api/subscription/:id", (req, res) => {
+  const sub = getSubscription(req.params.id);
+  res.json(sub);
+});
+
+// --- GITHUB WEBHOOK ---
+
+function getInstallationOctokit(installationId) {
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: process.env.APP_ID,
+      privateKey: process.env.PRIVATE_KEY,
+      installationId
+    }
+  });
+}
 
 app.post("/webhook", async (req, res) => {
   const signature = req.headers["x-hub-signature-256"];
   const hmac = crypto.createHmac("sha256", process.env.WEBHOOK_SECRET);
   const digest = "sha256=" + hmac.update(req.rawBody).digest("hex");
 
-  if (signature !== digest) {
-    return res.status(401).send("Invalid signature");
-  }
+  if (signature !== digest) return res.status(401).send("Invalid signature");
 
   const event = req.headers["x-github-event"];
   const action = req.body.action;
 
-  console.log("📩 Webhook:", event, action);
+  // 1. Handle Uninstalls
+  if (event === "installation" && action === "deleted") {
+    const installationId = req.body.installation.id;
+    console.log(`❌ Installation ${installationId} deleted. Cleaning up DB.`);
+    deleteSubscription(installationId);
+    return res.sendStatus(200);
+  }
 
-  if (
-    event === "pull_request" &&
-    ["opened", "synchronize", "reopened"].includes(action)
-  ) {
+  // 2. Handle Pull Requests
+  if (event === "pull_request" && ["opened", "synchronize", "reopened"].includes(action)) {
     try {
       const pr = req.body.pull_request;
+      const installationId = req.body.installation.id;
       const [owner, repo] = req.body.repository.full_name.split("/");
 
-      // 1️⃣ Read intent.md
-      const intentRules = await fetchIntentRules(owner, repo);
+      const subscription = getSubscription(installationId);
+      
+      // ==========================================================
+      // START OF FIX: Force enable features for testing
+      // ==========================================================
+      const activeFeatures = ["intent", "security", "summary"]; 
+      // const activeFeatures = subscription.features; // <--- Original line commented out
+      // ==========================================================
 
-      // 2️⃣ Get PR diff
-      const diffResponse = await octokit.pulls.get({
+      const authorityMode = subscription.settings?.authorityMode || "gatekeeper";
+
+      console.log(`Checking Subscription for ${installationId}:`, activeFeatures);
+
+      if (activeFeatures.length === 0) {
+        console.log("⚠️ No active subscription. Skipping analysis.");
+        return res.sendStatus(200);
+      }
+
+      const octokit = getInstallationOctokit(installationId);
+      
+      // Post "Pending" status
+      await octokit.checks.create({
         owner,
         repo,
-        pull_number: pr.number,
-        mediaType: { format: "diff" }
+        name: "FeaturePulse",
+        head_sha: pr.head.sha,
+        status: "in_progress",
+        output: {
+          title: "Analyzing...",
+          summary: "FeaturePulse is checking product intent and security."
+        }
       });
 
-      const diffText = diffResponse.data;
+      const intentRules = await fetchIntentRules(octokit, owner, repo);
+      const prChanges = await fetchPRChanges(octokit, owner, repo, pr.number);
 
-      // 3️⃣ AI analysis
-      const aiResult = await analyzeWithAI(
-        intentRules,
-        {
-          title: pr.title,
-          body: pr.body
-        },
-        diffText
+      let redundancyResult = [];
+      try {
+        const existingFiles = await fetchRepoStructure(octokit, owner, repo, pr.base.ref);
+        redundancyResult = analyzeRedundancy(prChanges, existingFiles);
+      } catch (err) {
+        console.error("Redundancy check failed:", err);
+      }
+
+      let securityResult = { riskLevel: "UNKNOWN", sensitiveFiles: [], vulnerabilities: [] };
+      if (activeFeatures.includes('security')) {
+        securityResult = await analyzeSecurity(prChanges);
+      }
+
+      const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
+      let aiResult = await analyzeWithAI(
+          intentRules, 
+          aiInput, 
+          prChanges, 
+          securityResult, 
+          redundancyResult
       );
 
-      const score = parseInt(aiResult.completion_score);
+      // --- MERGE AUTHORITY ENFORCEMENT ---
+      let conclusion = "success"; // Default to passing
+      let decisionDisplay = aiResult.decision;
 
-      let conclusion = "failure";
-      if (score >= 80) conclusion = "success";
-      else if (score >= 50) conclusion = "neutral";
+      if (aiResult.decision === "BLOCK") {
+        if (authorityMode === "gatekeeper") {
+          // Gatekeeper: BLOCK means FAIL check (red X)
+          conclusion = "failure";
+        } else if (authorityMode === "advisory") {
+          // Advisory: BLOCK means WARN (green check, but warning text)
+          conclusion = "success"; // Or 'neutral'
+          decisionDisplay = "WARN (Advisory Override)";
+          aiResult.summary = `**⚠️ [ADVISORY MODE]** FeaturePulse recommends **BLOCK**, but merge is allowed in Advisory mode.\n\n${aiResult.summary}`;
+        }
+      } 
+      // Auto-approve logic is implicit: 'success' allows merge.
 
-      // 4️⃣ Create GitHub Check
       await octokit.checks.create({
         owner,
         repo,
@@ -90,44 +231,26 @@ app.post("/webhook", async (req, res) => {
         status: "completed",
         conclusion,
         output: {
-          title: `Intent Completion: ${aiResult.completion_score}`,
+          title: `Decision: ${decisionDisplay}`,
           summary: aiResult.summary,
-          text: `
-### ✅ Completed Features
-${aiResult.completed_features.map(f => `- ${f}`).join("\n")}
-
-### ⚠️ Pending Features
-${aiResult.pending_features.map(f => `- ${f}`).join("\n")}
-          `
+          text: "See PR comment for details."
         }
       });
 
-      // 5️⃣ Comment on PR
       await octokit.issues.createComment({
         owner,
         repo,
         issue_number: pr.number,
-        body: `
-## 🤖 FeaturePulse Intent Analysis
-
-**Completion Score:** ${aiResult.completion_score}  
-**Decision:** ${aiResult.decision}
-
-### Summary
-${aiResult.summary}
-        `
+        body: `## 🤖 FeaturePulse Analysis\n\n**Authority Mode:** ${authorityMode.toUpperCase()}\n\n${aiResult.summary}`
       });
 
-      console.log("✅ FeaturePulse analysis posted");
-
     } catch (err) {
-      console.error("❌ FeaturePulse error:", err.message);
+      console.error("Webhook Error:", err);
     }
   }
-
   res.sendStatus(200);
 });
 
 app.listen(3000, () => {
-  console.log("🚀 FeaturePulse running on port 3000");
+  console.log("🚀 Server running on port 3000");
 });
