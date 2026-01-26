@@ -3,168 +3,102 @@
   max-width: 1200px;
   margin: 0 auto;
   text-align: center;
-  color: #fff;
 }
 
 .pricing-header h2 {
-  font-size: 2.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.pricing-header p {
-  color: #a1a1aa;
-  margin-bottom: 3rem;
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .plans-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 2rem;
-  align-items: center; /* Aligns cards if one is taller */
+  margin-top: 4rem;
 }
 
 .plan-card {
-  background: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 16px;
-  padding: 2.5rem;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--card-border);
+  border-radius: 24px;
+  padding: 3rem 2rem;
   position: relative;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: all 0.3s ease;
   display: flex;
   flex-direction: column;
 }
 
 .plan-card:hover {
-  transform: translateY(-8px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-  border-color: #646cff;
+  transform: translateY(-10px);
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.3);
 }
 
-/* Highlight the Pro/Popular plan */
+/* Highlight Card (Pro) */
 .plan-card.highlight {
-  border: 2px solid #646cff;
-  background: #232329;
-  transform: scale(1.05); /* Make it slightly bigger */
-  z-index: 2;
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid var(--accent-color);
+  box-shadow: 0 0 30px rgba(99, 102, 241, 0.15);
+  transform: scale(1.05);
+  z-index: 1;
 }
 
 .plan-card.highlight:hover {
-  transform: scale(1.05) translateY(-8px);
+  transform: scale(1.05) translateY(-10px);
+  box-shadow: 0 0 50px rgba(99, 102, 241, 0.3);
 }
 
 .popular-badge {
   position: absolute;
-  top: -12px;
+  top: -15px;
   left: 50%;
   transform: translateX(-50%);
-  background: #646cff;
+  background: var(--accent-gradient);
   color: white;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.plan-name {
-  font-size: 1.5rem;
-  margin: 0 0 1rem;
-  color: #fff;
+  padding: 6px 16px;
+  border-radius: 100px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  box-shadow: 0 5px 15px rgba(168, 85, 247, 0.4);
 }
 
 .plan-price {
-  font-size: 3rem;
+  font-size: 4rem;
   font-weight: 800;
-  color: #fff;
-  margin-bottom: 1rem;
-  display: flex;
-  justify-content: center;
-  align-items: baseline;
-}
-
-.currency {
-  font-size: 1.5rem;
-  margin-right: 4px;
-}
-
-.period {
-  font-size: 1rem;
-  color: #888;
-  font-weight: normal;
-  margin-left: 5px;
-}
-
-.plan-desc {
-  color: #a1a1aa;
-  margin-bottom: 2rem;
-  min-height: 50px; /* Aligns buttons */
-}
-
-.plan-features {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 2rem;
-  text-align: left;
-}
-
-.plan-features li {
-  padding: 0.5rem 0;
-  color: #e4e4e7;
-  border-bottom: 1px solid #333;
-}
-
-.plan-features li:last-child {
-  border-bottom: none;
+  color: var(--text-primary);
+  margin: 1.5rem 0;
+  text-shadow: 0 0 20px rgba(255,255,255,0.1);
 }
 
 .plan-btn {
-  background: transparent;
-  border: 1px solid #646cff;
-  color: #646cff;
+  margin-top: auto;
   padding: 1rem;
-  border-radius: 8px;
-  font-weight: bold;
+  border-radius: 12px;
+  font-weight: 700;
+  border: 1px solid var(--card-border);
+  background: transparent;
+  color: var(--text-primary);
   cursor: pointer;
   transition: all 0.2s;
-  margin-top: auto;
 }
 
 .plan-btn:hover {
-  background: #646cff;
-  color: white;
+  border-color: var(--text-primary);
+  background: rgba(255,255,255,0.05);
 }
 
-/* Highlight button for the highlighted plan */
 .plan-card.highlight .plan-btn {
-  background: #646cff;
+  background: var(--accent-color);
+  border-color: var(--accent-color);
   color: white;
+  box-shadow: 0 5px 20px rgba(99, 102, 241, 0.3);
 }
 
 .plan-card.highlight .plan-btn:hover {
-  background: #535bf2;
-}
-
-/* Active Plan State */
-.active-plan {
-  border-color: #4caf50;
-  opacity: 0.8;
-}
-
-.btn-active {
-  background: #4caf50 !important;
-  border-color: #4caf50 !important;
-  color: white !important;
-  cursor: default;
-}
-
-.install-btn {
-  background: #2ea44f;
-  color: white;
-  padding: 1rem 2rem;
-  border-radius: 8px;
-  text-decoration: none;
-  font-weight: bold;
-  display: inline-block;
-  margin-top: 1rem;
+  background: #4f46e5;
+  transform: translateY(-2px);
 }

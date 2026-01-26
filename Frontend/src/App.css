@@ -1,76 +1,150 @@
-/* Existing styles... */
+/* --- LAYOUT STRUCTURE (Add these to fix the dashboard layout) --- */
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  position: relative;
+}
 
-/* LANDING PAGE STYLES */
+.sidebar {
+  width: var(--sidebar-width);
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid var(--card-border);
+  padding: 2rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 10;
+}
+
+.main-content {
+  flex: 1;
+  /* Overflow handling */
+  overflow-x: hidden;
+}
+
+/* Sidebar Navigation Buttons */
+.sidebar button {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 1rem 1.5rem;
+  text-align: left;
+  font-size: 1rem;
+  font-weight: 500;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.sidebar button.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-color);
+  box-shadow: 0 0 0 1px var(--accent-color);
+}
+
+/* --- LANDING PAGE STYLES --- */
 .landing-page {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 80vh;
+  min-height: 90vh;
   text-align: center;
   padding: 2rem;
+  background: radial-gradient(circle at center, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
 }
 
 .hero-content h1 {
-  font-size: 2.5rem;
-  margin-bottom: 1rem;
-  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  font-size: 4rem;
+  font-weight: 800;
+  margin-bottom: 1.5rem;
+  background: var(--accent-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 2em rgba(168, 85, 247, 0.4));
+  letter-spacing: -0.05em;
 }
 
 .hero-content p {
-  font-size: 1.2rem;
-  color: #6b7280;
-  margin-bottom: 2rem;
+  font-size: 1.25rem;
+  color: var(--text-secondary);
+  margin-bottom: 3rem;
   max-width: 600px;
+  line-height: 1.6;
 }
 
 .install-button {
-  display: inline-block;
-  background-color: #000;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--text-primary);
+  color: #000;
+  padding: 16px 32px;
+  border-radius: 100px;
   text-decoration: none;
-  font-weight: 600;
-  transition: transform 0.2s;
+  font-weight: 700;
+  font-size: 1.1rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
 }
 
 .install-button:hover {
-  transform: translateY(-2px);
-  background-color: #333;
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.4);
 }
 
 .features-preview {
   display: flex;
-  gap: 2rem;
-  margin-top: 4rem;
+  gap: 1.5rem;
+  margin-top: 5rem;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .feature-item {
-  background: #f9fafb;
-  padding: 1rem 1.5rem;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
-  font-weight: 500;
+  background: var(--card-bg);
+  padding: 1.5rem 2rem;
+  border-radius: 16px;
+  border: 1px solid var(--card-border);
+  font-weight: 600;
+  color: var(--text-primary);
+  backdrop-filter: blur(10px);
+  transition: transform 0.2s;
 }
 
+.feature-item:hover {
+  transform: translateY(-5px);
+  border-color: var(--accent-color);
+}
+
+/* Sidebar Footer */
 .sidebar-footer {
   margin-top: auto;
   padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--card-border);
 }
 
 .logout-button {
   width: 100%;
-  color: #ef4444;
-  border-color: #fee2e2;
-  background: #fef2f2;
+  color: var(--error) !important;
+  background: rgba(239, 68, 68, 0.1) !important;
+  justify-content: center;
 }
 
 .logout-button:hover {
-  background: #fee2e2;
+  background: rgba(239, 68, 68, 0.2) !important;
 }
 
 .loading-screen {
@@ -78,6 +152,8 @@
   justify-content: center;
   align-items: center;
   height: 100vh;
-  font-size: 1.2rem;
-  color: #6b7280;
+  font-size: 1.5rem;
+  color: var(--accent-color);
+  font-weight: 600;
+  letter-spacing: 0.05em;
 }

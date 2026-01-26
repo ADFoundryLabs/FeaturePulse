@@ -1,26 +1,26 @@
-:root {
-  /* Light theme colors */
-  --bg-primary: #f8fafc;
-  --bg-hover: #f1f5f9;
-  --card-bg: #ffffff;
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --border-color: #e2e8f0;
-  --accent-color: #3b82f6;
-  --code-bg: #f1f5f9;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-primary: #0f172a;
-    --bg-hover: #1e293b;
-    --card-bg: #1e293b;
-    --text-primary: #f1f5f9;
-    --text-secondary: #94a3b8;
-    --border-color: #334155;
-    --accent-color: #60a5fa;
-    --code-bg: #0f172a;
-  }
+:root {
+  /* Modern Dark Theme Palette */
+  --bg-primary: #0f172a; /* Deep Slate */
+  --bg-secondary: #1e293b;
+  --bg-gradient: radial-gradient(circle at top right, #1e1b4b, #0f172a);
+  
+  --card-bg: rgba(30, 41, 59, 0.7); /* Glass effect base */
+  --card-border: rgba(148, 163, 184, 0.1);
+  
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  
+  --accent-color: #6366f1; /* Indigo */
+  --accent-glow: rgba(99, 102, 241, 0.4);
+  --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  
+  --sidebar-width: 260px;
 }
 
 * {
@@ -29,14 +29,13 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   background: var(--bg-primary);
+  background-image: var(--bg-gradient);
+  background-attachment: fixed; /* Keeps gradient consistent on scroll */
   color: var(--text-primary);
-  line-height: 1.5;
+  min-height: 100vh;
 }
 
 #root {
@@ -45,37 +44,28 @@ body {
   flex-direction: column;
 }
 
-code {
-  font-family: 'Monaco', 'Courier New', monospace;
+code, .repo-name, .pr-number {
+  font-family: 'JetBrains Mono', monospace;
 }
 
-/* Scrollbar Styling */
+/* Modern Scrollbar */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 5px;
+  background: #334155;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
+  background: #475569;
 }
 
-/* Smooth scrolling */
-html {
-  scroll-behavior: smooth;
-}
-
-/* Focus styles for accessibility */
-button:focus-visible,
-a:focus-visible {
-  outline: 2px solid var(--accent-color);
-  outline-offset: 2px;
+button {
+  font-family: inherit;
 }
