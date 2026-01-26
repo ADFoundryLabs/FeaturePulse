@@ -66,6 +66,12 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
   - IF Intent Match >= 80% AND Security = "LOW" AND No Redundancy -> Decision is "APPROVE"
   - ELSE -> Decision is "WARN"
 
+  [SUMMARIZATION INSTRUCTIONS]
+  Generate 3 specific types of summaries for this Pull Request:
+  1. "simple_summary": For non-technical stakeholders. Use easy language, analogies, and focus on the "what" and "why" (business value).
+  2. "developer_summary": For engineers. Use technical terminology, mention specific files/functions modified, architectural impact, and implementation details.
+  3. "standard_summary": A balanced professional summary explaining the decision and key findings (Status Quo).
+
   ---
   [PROJECT INTENT RULES]
   ${intentRules}
@@ -90,7 +96,11 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
     "completed_features": ["List of intent items FULLY implemented"],
     "pending_features": ["List of intent items MISSING"],
     "decision": "APPROVE" | "WARN" | "BLOCK",
-    "summary": "A human-readable explanation of the decision. Mention specific security risks or redundancy if found."
+    "summaries": {
+        "simple": "Simple language summary for non-techies...",
+        "developer": "Technical summary for devs...",
+        "standard": "Standard professional summary..."
+    }
   }
   `;
 
@@ -129,7 +139,11 @@ export async function analyzeWithAI(intentRules, prDetails, fileChanges, securit
       completed_features: [],
       pending_features: ["Analysis Failed"],
       decision: "WARN",
-      summary: "I encountered an error analyzing your code. Please check your API keys."
+      summaries: {
+        simple: "Analysis failed.",
+        developer: "Analysis failed due to an error.",
+        standard: "I encountered an error analyzing your code. Please check your API keys."
+      }
     };
   }
 }
