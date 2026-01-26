@@ -1,41 +1,36 @@
-import fs from 'fs';
-import path from 'path';
+import fs from "fs";
+const DB_FILE = "database.json";
 
-const DB_FILE = path.resolve('data.json');
-
-// Initialize DB file if it doesn't exist
-if (!fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify({}));
+function loadDB() {
+  if (!fs.existsSync(DB_FILE)) return {};
+  return JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
 }
 
-function readDB() {
-  try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  } catch (error) {
-    return {};
-  }
-}
-
-function writeDB(data) {
+function saveDB(data) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
 export function getSubscription(installationId) {
-  const db = readDB();
+  const db = loadDB();
   return db[installationId] || { features: [] };
 }
 
-export function updateSubscription(installationId, newFeatures) {
-  const db = readDB();
-  const currentFeatures = db[installationId]?.features || [];
-  // Merge and remove duplicates
-  const combinedFeatures = [...new Set([...currentFeatures, ...newFeatures])];
+export function updateSubscription(installationId, features) {
+  const db = loadDB();
+  db[installationId] = { features, updatedAt: new Date().toISOString() };
+  saveDB(db);
+}
 
-  db[installationId] = {
-    features: combinedFeatures,
-    updatedAt: Date.now()
-  };
-
-  writeDB(db);
-  console.log(`💾 DB Updated: Installation ${installationId} has features: ${combinedFeatures}`);
+/**
+ * Removes a subscription from the database.
+ * Used when the GitHub App is uninstalled.
+ */
+export function deleteSubscription(installationId) {
+  const db = loadDB();
+  if (db[installationId]) {
+    delete db[installationId];
+    saveDB(db);
+    return true;
+  }
+  return false;
 }
