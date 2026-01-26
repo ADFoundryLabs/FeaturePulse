@@ -10,8 +10,7 @@ import { fetchIntentRules, fetchPRChanges, fetchRepoStructure } from "./github.j
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
 import { analyzeRedundancy } from "./redundancy.js";
-// Removed updateSettings import
-import { getSubscription, updateSubscription, deleteSubscription } from "./db.js"; 
+import { getSubscription, updateSubscription } from "./db.js"; 
 
 dotenv.config();
 
@@ -34,27 +33,6 @@ const razorpay = new Razorpay({
 
 const PRICES = { intent: 499, security: 499, summary: 299 };
 
-// --- INSTALLATION VERIFICATION ---
-app.get("/api/installation-status/:id", async (req, res) => {
-  try {
-    const appOctokit = new Octokit({
-      authStrategy: createAppAuth,
-      auth: {
-        appId: process.env.APP_ID,
-        privateKey: process.env.PRIVATE_KEY,
-      },
-    });
-
-    await appOctokit.apps.getInstallation({
-      installation_id: req.params.id,
-    });
-
-    res.json({ valid: true });
-  } catch (error) {
-    res.json({ valid: false });
-  }
-});
-
 // --- PAYMENT ENDPOINTS ---
 
 app.post("/api/create-order", async (req, res) => {
@@ -65,6 +43,7 @@ app.post("/api/create-order", async (req, res) => {
     let totalAmount = 0;
     features.forEach(f => { if (PRICES[f]) totalAmount += PRICES[f]; });
 
+    // 20% Discount for all 3 features
     if (features.length === 3) totalAmount = Math.floor(totalAmount * 0.8);
 
     const options = {
@@ -115,92 +94,67 @@ function getInstallationOctokit(installationId) {
 }
 
 app.post("/webhook", async (req, res) => {
-  console.log("🔔 Webhook received!"); 
-
   const signature = req.headers["x-hub-signature-256"];
   const hmac = crypto.createHmac("sha256", process.env.WEBHOOK_SECRET);
   const digest = "sha256=" + hmac.update(req.rawBody).digest("hex");
 
-  if (signature !== digest) {
-    console.error("❌ Invalid Signature");
-    return res.status(401).send("Invalid signature");
-  }
+  if (signature !== digest) return res.status(401).send("Invalid signature");
 
   const event = req.headers["x-github-event"];
   const action = req.body.action;
-  console.log(`Event: ${event}, Action: ${action}`);
 
-  // 1. Handle Uninstalls
-  if (event === "installation" && action === "deleted") {
-    const installationId = req.body.installation.id;
-    console.log(`❌ Installation ${installationId} deleted.`);
-    deleteSubscription(installationId);
-    return res.sendStatus(200);
-  }
-
-  // 2. Handle Pull Requests
   if (event === "pull_request" && ["opened", "synchronize", "reopened"].includes(action)) {
     try {
       const pr = req.body.pull_request;
       const installationId = req.body.installation.id;
       const [owner, repo] = req.body.repository.full_name.split("/");
 
-      console.log(`Processing PR #${pr.number} for ${owner}/${repo}`);
-
+      // 🔍 CHECK DB FOR ACTIVE FEATURES
       const subscription = getSubscription(installationId);
       const activeFeatures = subscription.features;
 
-      console.log(`Features: ${activeFeatures}`);
+      console.log(`Checking Subscription for ${installationId}:`, activeFeatures);
 
-      if (!activeFeatures || activeFeatures.length === 0) {
+      if (activeFeatures.length === 0) {
         console.log("⚠️ No active subscription. Skipping analysis.");
         return res.sendStatus(200);
       }
 
+      // PROCEED WITH ANALYSIS
       const octokit = getInstallationOctokit(installationId);
       
-      // Post "Pending" status
-      await octokit.checks.create({
-        owner,
-        repo,
-        name: "FeaturePulse",
-        head_sha: pr.head.sha,
-        status: "in_progress",
-        output: {
-          title: "Analyzing...",
-          summary: "FeaturePulse is checking product intent, security, and redundancy."
-        }
-      });
-
+      // Fetch Intent (Pass octokit instance)
       const intentRules = await fetchIntentRules(octokit, owner, repo);
+      // Fetch PR Changes (Pass octokit instance)
       const prChanges = await fetchPRChanges(octokit, owner, repo, pr.number);
 
+      // --- REDUNDANCY DETECTION ---
       let redundancyResult = [];
       try {
+        // Fetch repo structure to compare files against
         const existingFiles = await fetchRepoStructure(octokit, owner, repo, pr.base.ref);
         redundancyResult = analyzeRedundancy(prChanges, existingFiles);
       } catch (err) {
         console.error("Redundancy check failed:", err);
       }
-
+      
+      // --- SECURITY ANALYSIS ---
       let securityResult = { riskLevel: "UNKNOWN", sensitiveFiles: [], vulnerabilities: [] };
       if (activeFeatures.includes('security')) {
         securityResult = await analyzeSecurity(prChanges);
       }
 
+      // --- AI ANALYSIS ---
       const aiInput = { title: pr.title, body: pr.body, features: activeFeatures };
-      let aiResult = await analyzeWithAI(
+      const aiResult = await analyzeWithAI(
           intentRules, 
           aiInput, 
           prChanges, 
           securityResult, 
-          redundancyResult
+          redundancyResult // Pass redundancy findings
       );
 
-      // --- STANDARD DECISION LOGIC (No Authority Overrides) ---
       let conclusion = aiResult.decision === "BLOCK" ? "failure" : "success";
-
-      console.log(`Final Decision: ${aiResult.decision} (Conclusion: ${conclusion})`);
 
       await octokit.checks.create({
         owner,
@@ -230,7 +184,6 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+app.listen(3000, () => {
+  console.log("🚀 Server running on port 3000");
 });
