@@ -1,109 +1,49 @@
 /**
  * API service for communicating with the FeaturePulse backend
- * 
- * TODO: Update API_BASE_URL when backend API endpoints are available
  */
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 /**
- * Fetch recent PR analyses
- * @returns {Promise<Array>} Array of PR analysis results
+ * Fetch subscription data (including settings)
  */
+export async function fetchSubscription(installationId) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/subscription/${installationId}`);
+    if (!response.ok) throw new Error('Failed to fetch subscription');
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching subscription:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update configuration settings (Authority Mode)
+ */
+export async function saveSettings(installationId, settings) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installationId, settings })
+    });
+    if (!response.ok) throw new Error('Failed to save settings');
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving settings:', error);
+    throw error;
+  }
+}
+
+// --- MOCK / PLACEHOLDERS (Keep these for now to avoid breaking other components) ---
+
 export async function fetchRecentAnalyses() {
-  try {
-    // TODO: Replace with actual endpoint when available
-    // const response = await fetch(`${API_BASE_URL}/api/analyses`);
-    // if (!response.ok) throw new Error('Failed to fetch analyses');
-    // return await response.json();
-    
-    // Mock data for now
-    return [];
-  } catch (error) {
-    console.error('Error fetching analyses:', error);
-    throw error;
-  }
+  return [
+    { id: 1, prNumber: 123, title: 'Add user authentication', score: 85, decision: 'APPROVE', repo: 'myorg/myrepo', date: '2026-01-24' },
+    { id: 2, prNumber: 121, title: 'Refactor API', score: 65, decision: 'WARN', repo: 'myorg/myrepo', date: '2026-01-23' }
+  ];
 }
 
-/**
- * Fetch dashboard statistics
- * @returns {Promise<Object>} Statistics object
- */
 export async function fetchDashboardStats() {
-  try {
-    // TODO: Replace with actual endpoint when available
-    // const response = await fetch(`${API_BASE_URL}/api/stats`);
-    // if (!response.ok) throw new Error('Failed to fetch stats');
-    // return await response.json();
-    
-    // Mock data for now
-    return {
-      totalPRs: 0,
-      approved: 0,
-      warnings: 0,
-      blocked: 0
-    };
-  } catch (error) {
-    console.error('Error fetching stats:', error);
-    throw error;
-  }
-}
-
-/**
- * Fetch intent rules from repository
- * @param {string} owner - Repository owner
- * @param {string} repo - Repository name
- * @returns {Promise<Object>} Intent rules object
- */
-export async function fetchIntentRules(owner, repo) {
-  try {
-    // TODO: Replace with actual endpoint when available
-    // const response = await fetch(`${API_BASE_URL}/api/rules/${owner}/${repo}`);
-    // if (!response.ok) throw new Error('Failed to fetch rules');
-    // return await response.json();
-    
-    // Mock data for now
-    return null;
-  } catch (error) {
-    console.error('Error fetching intent rules:', error);
-    throw error;
-  }
-}
-
-/**
- * Fetch specific PR analysis
- * @param {string} owner - Repository owner
- * @param {string} repo - Repository name
- * @param {number} prNumber - Pull request number
- * @returns {Promise<Object>} PR analysis result
- */
-export async function fetchPRAnalysis(owner, repo, prNumber) {
-  try {
-    // TODO: Replace with actual endpoint when available
-    // const response = await fetch(`${API_BASE_URL}/api/analysis/${owner}/${repo}/${prNumber}`);
-    // if (!response.ok) throw new Error('Failed to fetch PR analysis');
-    // return await response.json();
-    
-    // Mock data for now
-    return null;
-  } catch (error) {
-    console.error('Error fetching PR analysis:', error);
-    throw error;
-  }
-}
-
-/**
- * Health check endpoint
- * @returns {Promise<boolean>} True if backend is available
- */
-export async function checkBackendHealth() {
-  try {
-    // TODO: Replace with actual endpoint when available
-    // const response = await fetch(`${API_BASE_URL}/health`);
-    // return response.ok;
-    
-    // For now, assume backend is not available
-    return false;
-  } catch (error) {
-    return false;
-  }
+  return { totalPRs: 42, approved: 28, warnings: 10, blocked: 4 };
 }
