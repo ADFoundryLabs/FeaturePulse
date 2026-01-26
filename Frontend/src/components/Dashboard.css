@@ -168,3 +168,35 @@
 .score-badge {
   margin-bottom: 5px;
 }
+
+/* NEW Score Display Styles */
+.score-display {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.25rem;
+  min-width: 120px; /* Ensures consistent width for bars */
+}
+
+.score-text {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.score-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1); /* Dim track background */
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.score-fill {
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); /* Smooth animation */
+}

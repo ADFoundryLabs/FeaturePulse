@@ -152,13 +152,28 @@ function Dashboard({ installationId }) {
                     <span className="pr-number">#{analysis.prNumber}</span>
                     <h4 className="pr-title">{analysis.title}</h4>
                   </div>
-                  <div 
-                    className="score-badge"
-                    style={{ backgroundColor: getScoreColor(analysis.score) }}
-                  >
-                    {analysis.score}%
+
+                  {/*  */}
+                  {/* --- NEW SCORE BAR DISPLAY --- */}
+                  <div className="score-display">
+                    <div className="score-text" style={{ color: getScoreColor(analysis.score) }}>
+                      {analysis.score}%
+                    </div>
+                    <div className="score-track">
+                      <div 
+                        className="score-fill"
+                        style={{ 
+                          width: `${analysis.score}%`, 
+                          backgroundColor: getScoreColor(analysis.score),
+                          boxShadow: `0 0 8px ${getScoreColor(analysis.score)}` // Neon glow
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
+                  {/* ----------------------------- */}
+                 
+
+                {/*  */}
                 <div className="analysis-meta">
                   <span 
                     className="decision-badge"
