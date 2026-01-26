@@ -150,8 +150,12 @@ app.post("/webhook", async (req, res) => {
 
       const subscription = getSubscription(installationId);
       
+      // ==========================================================
+      // FORCE ENABLE FEATURES (FOR TESTING)
+      // ==========================================================
       const activeFeatures = ["intent", "security", "summary"]; 
       // const activeFeatures = subscription.features; 
+      // ==========================================================
 
       const authorityMode = subscription.settings?.authorityMode || "gatekeeper";
 
@@ -164,6 +168,7 @@ app.post("/webhook", async (req, res) => {
 
       const octokit = getInstallationOctokit(installationId);
       
+      // Post "Pending" status
       await octokit.checks.create({
         owner,
         repo,
@@ -202,24 +207,23 @@ app.post("/webhook", async (req, res) => {
       );
 
       // --- MERGE AUTHORITY ENFORCEMENT ---
-      let conclusion = "success"; 
+      let conclusion = "success"; // Default to passing
       let decisionDisplay = aiResult.decision;
-
-      // Extract the correct summary from the new "summaries" object
-      const standardSummary = aiResult.summaries?.standard || "No summary available.";
+      const completionScore = aiResult.completion_score || "N/A"; // Extract Score
 
       if (aiResult.decision === "BLOCK") {
         if (authorityMode === "gatekeeper") {
+          // Gatekeeper: BLOCK means FAIL check (red X)
           conclusion = "failure";
         } else if (authorityMode === "advisory") {
-          conclusion = "success"; 
+          // Advisory: BLOCK means WARN (green check, but warning text)
+          conclusion = "success"; // Or 'neutral'
           decisionDisplay = "WARN (Advisory Override)";
-          // Append warning to the summary
-          aiResult.summaries.standard = `**⚠️ [ADVISORY MODE]** FeaturePulse recommends **BLOCK**, but merge is allowed in Advisory mode.\n\n${standardSummary}`;
+          aiResult.summary = `**⚠️ [ADVISORY MODE]** FeaturePulse recommends **BLOCK**, but merge is allowed in Advisory mode.\n\n${aiResult.summary}`;
         }
       } 
-
-      // 1. UPDATE CHECK RUN (Use Standard Summary)
+      
+      // 1. Update Check Run with Score in Title
       await octokit.checks.create({
         owner,
         repo,
@@ -228,32 +232,22 @@ app.post("/webhook", async (req, res) => {
         status: "completed",
         conclusion,
         output: {
-          title: `Decision: ${decisionDisplay}`,
-          summary: aiResult.summaries?.standard || "Analysis Completed.",
-          text: "See PR comment for full details."
+          title: `Decision: ${decisionDisplay} | Score: ${completionScore}`,
+          summary: aiResult.summary,
+          text: "See PR comment for details."
         }
       });
 
-      // 2. CREATE PR COMMENT (Show ALL 3 Summaries)
-      const commentBody = `## 🤖 FeaturePulse Analysis
-**Authority Mode:** ${authorityMode.toUpperCase()}
-**Decision:** ${decisionDisplay}
-
-### 📝 Executive Summary
-${aiResult.summaries?.standard || "Not available"}
-
-### 👶 Simple Explanation
-${aiResult.summaries?.simple || "Not available"}
-
-### 🧑‍💻 Developer Details
-${aiResult.summaries?.developer || "Not available"}
-`;
-
+      // 2. Post Comment with Score Header
       await octokit.issues.createComment({
         owner,
         repo,
         issue_number: pr.number,
-        body: commentBody
+        body: `## 🤖 FeaturePulse Analysis\n\n` +
+              `**📊 Intent Score:** ${completionScore}\n` +
+              `**🛡️ Decision:** ${decisionDisplay}\n` +
+              `**⚡ Authority Mode:** ${authorityMode.toUpperCase()}\n\n` +
+              `---\n\n${aiResult.summary}`
       });
 
     } catch (err) {
