@@ -33,7 +33,7 @@ const razorpay = new Razorpay({
 
 const PRICES = { intent: 499, security: 499, summary: 299 };
 
-// --- NEW: INSTALLATION VERIFICATION ENDPOINT ---
+// --- INSTALLATION VERIFICATION ---
 app.get("/api/installation-status/:id", async (req, res) => {
   try {
     const appOctokit = new Octokit({
@@ -44,14 +44,12 @@ app.get("/api/installation-status/:id", async (req, res) => {
       },
     });
 
-    // Attempt to fetch the installation. If it throws 404, it's uninstalled.
     await appOctokit.apps.getInstallation({
       installation_id: req.params.id,
     });
 
     res.json({ valid: true });
   } catch (error) {
-    // If error is 404, the installation is definitely gone
     res.json({ valid: false });
   }
 });
@@ -125,15 +123,13 @@ app.post("/webhook", async (req, res) => {
   const event = req.headers["x-github-event"];
   const action = req.body.action;
 
-  // 1. Handle Uninstalls
   if (event === "installation" && action === "deleted") {
     const installationId = req.body.installation.id;
-    console.log(`❌ Installation ${installationId} deleted. Cleaning up DB.`);
+    console.log(`❌ Installation ${installationId} deleted.`);
     deleteSubscription(installationId);
     return res.sendStatus(200);
   }
 
-  // 2. Handle Pull Requests
   if (event === "pull_request" && ["opened", "synchronize", "reopened"].includes(action)) {
     try {
       const pr = req.body.pull_request;
@@ -145,12 +141,25 @@ app.post("/webhook", async (req, res) => {
 
       console.log(`Checking Subscription for ${installationId}:`, activeFeatures);
 
-      if (activeFeatures.length === 0) {
+      if (!activeFeatures || activeFeatures.length === 0) {
         console.log("⚠️ No active subscription. Skipping analysis.");
         return res.sendStatus(200);
       }
 
       const octokit = getInstallationOctokit(installationId);
+      
+      await octokit.checks.create({
+        owner,
+        repo,
+        name: "FeaturePulse",
+        head_sha: pr.head.sha,
+        status: "in_progress",
+        output: {
+          title: "Analyzing...",
+          summary: "Checking intent, security, and redundancy."
+        }
+      });
+
       const intentRules = await fetchIntentRules(octokit, owner, repo);
       const prChanges = await fetchPRChanges(octokit, owner, repo, pr.number);
 
@@ -206,6 +215,8 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 });
 
-app.listen(3000, () => {
-  console.log("🚀 Server running on port 3000");
+// ✅ FIX: Use dynamic PORT for Railway
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
