@@ -69,7 +69,7 @@ function App() {
             <h1>Automated Guardrails for Your Code</h1>
             <p>Connect FeaturePulse to your GitHub repository to enforce product intent and security rules.</p>
             <a 
-              href="https://github.com/apps/featurepulse-bot/installations/new" 
+              href="https://github.com/apps/featurepulse-merge" 
               className="install-button"
             >
               Install on GitHub
