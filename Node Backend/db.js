@@ -12,12 +12,34 @@ function saveDB(data) {
 
 export function getSubscription(installationId) {
   const db = loadDB();
-  return db[installationId] || { features: [] };
+  // Default structure now includes settings
+  return db[installationId] || { 
+    features: [], 
+    settings: { authorityMode: "gatekeeper" } // Default to Gatekeeper
+  };
 }
 
 export function updateSubscription(installationId, features) {
   const db = loadDB();
-  db[installationId] = { features, updatedAt: new Date().toISOString() };
+  const current = db[installationId] || { settings: { authorityMode: "gatekeeper" } };
+  
+  db[installationId] = { 
+    ...current,
+    features, 
+    updatedAt: new Date().toISOString() 
+  };
+  saveDB(db);
+}
+
+export function updateSettings(installationId, settings) {
+  const db = loadDB();
+  const current = db[installationId] || { features: [] };
+  
+  db[installationId] = {
+    ...current,
+    settings: { ...current.settings, ...settings },
+    updatedAt: new Date().toISOString()
+  };
   saveDB(db);
 }
 
