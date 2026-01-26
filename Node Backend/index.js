@@ -5,7 +5,6 @@ import cors from "cors";
 import Razorpay from "razorpay";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
-
 import { fetchIntentRules, fetchPRChanges, fetchRepoStructure } from "./github.js";
 import { analyzeWithAI } from "./ai.js";
 import { analyzeSecurity } from "./security.js";
@@ -236,6 +235,20 @@ app.post("/webhook", async (req, res) => {
           text: "See PR comment for details."
         }
       });
+
+      const commentBody = `## 🤖 FeaturePulse Analysis
+**Authority Mode:** ${authorityMode.toUpperCase()}
+**Decision:** ${decisionDisplay}
+
+### 📝 Executive Summary
+${aiResult.summaries?.standard || "Not available"}
+
+### 👶 Simple Explanation
+${aiResult.summaries?.simple || "Not available"}
+
+### 🧑‍💻 Developer Details
+${aiResult.summaries?.developer || "Not available"}
+`;
 
       await octokit.issues.createComment({
         owner,

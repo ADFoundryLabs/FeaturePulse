@@ -117,7 +117,7 @@ export default function Pricing({ installationId }) {
               <div className="plan-price">
                 <span className="currency">₹</span>
                 {plan.price}
-                <span className="period">/repo</span>
+                <span className="period">/month</span>
               </div>
               <p className="plan-desc">{plan.description}</p>
               
