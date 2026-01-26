@@ -13,8 +13,8 @@ function saveDB(data) {
 export function getSubscription(installationId) {
   const db = loadDB();
   
-  // 🚨 HACKATHON FIX: If no record exists (e.g., after a Railway redeploy), 
-  // return a default ACTIVE subscription with all features enabled.
+  // 🚨 HACKATHON MODE FIX: 
+  // If the DB is empty (Railway wiped it), return ALL features as active.
   if (!db[installationId]) {
     console.log(`⚠️ No DB record for ${installationId}. Using Default Subscription (Hackathon Mode).`);
     return { 
@@ -23,7 +23,7 @@ export function getSubscription(installationId) {
     };
   }
 
-  // Ensure settings exist even on existing records
+  // Ensure settings exist on existing records
   const sub = db[installationId];
   if (!sub.settings) sub.settings = { authorityMode: "gatekeeper" };
   
