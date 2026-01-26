@@ -12,11 +12,22 @@ function saveDB(data) {
 
 export function getSubscription(installationId) {
   const db = loadDB();
-  // Default structure now includes settings
-  return db[installationId] || { 
-    features: [], 
-    settings: { authorityMode: "gatekeeper" } // Default to Gatekeeper
-  };
+  
+  // 🚨 HACKATHON FIX: If no record exists (e.g., after a Railway redeploy), 
+  // return a default ACTIVE subscription with all features enabled.
+  if (!db[installationId]) {
+    console.log(`⚠️ No DB record for ${installationId}. Using Default Subscription (Hackathon Mode).`);
+    return { 
+      features: ['intent', 'security', 'summary'], 
+      settings: { authorityMode: "gatekeeper" } 
+    };
+  }
+
+  // Ensure settings exist even on existing records
+  const sub = db[installationId];
+  if (!sub.settings) sub.settings = { authorityMode: "gatekeeper" };
+  
+  return sub;
 }
 
 export function updateSubscription(installationId, features) {
@@ -33,7 +44,8 @@ export function updateSubscription(installationId, features) {
 
 export function updateSettings(installationId, settings) {
   const db = loadDB();
-  const current = db[installationId] || { features: [] };
+  // Default to all features if creating new record via settings
+  const current = db[installationId] || { features: ['intent', 'security', 'summary'] };
   
   db[installationId] = {
     ...current,
@@ -43,10 +55,6 @@ export function updateSettings(installationId, settings) {
   saveDB(db);
 }
 
-/**
- * Removes a subscription from the database.
- * Used when the GitHub App is uninstalled.
- */
 export function deleteSubscription(installationId) {
   const db = loadDB();
   if (db[installationId]) {
