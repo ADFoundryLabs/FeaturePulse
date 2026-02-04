@@ -1,4 +1,17 @@
 {
+  "description": "AI-Powered Pull Request Guardian for Product Intent & Security",
+  "keywords": [
+    "github-app",
+    "ai",
+    "security",
+    "pull-request",
+    "automation",
+    "code-quality",
+    "intent-analysis",
+    "vulnerability-scanner"
+  ]
+}
+{
   "name": "knowcode",
   "version": "1.0.0",
   "type": "module",
